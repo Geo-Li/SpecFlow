@@ -171,9 +171,18 @@ Admin can override the system prompt via the dashboard.
 
 ### Concurrency Model
 
-**Serial execution with a queue.** Only one Claude Code CLI process runs at a time. If a session is confirmed while another is executing, it enters a FIFO queue and the user is notified: "Your task is queued (position #N). You'll be notified when execution starts."
+**Parallel execution via git worktrees.** Each session gets its own isolated worktree, so multiple Claude Code processes can run simultaneously on the same repo without interfering with each other.
 
-This avoids git state collisions on the same repo. Future versions may support parallel execution via git worktrees.
+When a session is confirmed:
+1. `git fetch origin` on the main repo to get latest state.
+2. Create a worktree: `git worktree add /tmp/specflow-wt-<session-id> -b specflow/<session-id> origin/<default-branch>`.
+3. Run Claude Code CLI in the worktree directory (`/tmp/specflow-wt-<session-id>`).
+4. Push, create PR from the worktree.
+5. Clean up: `git worktree remove /tmp/specflow-wt-<session-id>`.
+
+This means 10 teammates can trigger 10 tasks simultaneously — each gets its own directory, branch, and Claude Code process with zero collisions.
+
+**Resource limits:** Admin can configure `maxConcurrentExecutions` in the dashboard (default: 3). When the limit is reached, new confirmations enter a FIFO queue and the user is notified: "Your task is queued (position #N). You'll be notified when execution starts."
 
 ### Repo Selection
 
@@ -185,28 +194,27 @@ When a user triggers a task from Slack:
 ### Execution Flow
 
 1. Validate the configured repo path exists and is a git repo.
-2. `git fetch origin` to ensure we have latest remote state.
-3. `git checkout <default-branch> && git pull origin <default-branch>` to sync.
-4. Create and checkout a new branch: `specflow/<session-id>` from the default branch. If the branch already exists (retry scenario), append a numeric suffix: `specflow/<session-id>-2`.
-5. Write the confirmed plan to a temp file (to avoid shell argument length limits).
-6. Spawn `claude` CLI as a child process:
-   - Working directory: the repo path
+2. `git fetch origin` on the main repo to get latest remote state.
+3. Create an isolated worktree: `git worktree add /tmp/specflow-wt-<session-id> -b specflow/<session-id> origin/<default-branch>`. If the branch already exists (retry scenario), append a numeric suffix.
+4. Write the confirmed plan to a temp file (to avoid shell argument length limits).
+5. Spawn `claude` CLI as a child process:
+   - Working directory: the worktree path (`/tmp/specflow-wt-<session-id>`)
    - Command: `claude --print -p "$(cat /tmp/specflow-<session-id>.txt)"` — uses `--print` for non-interactive single-pass execution. The `-p` flag passes the prompt.
    - The plan prompt instructs Claude Code to make changes and commit them.
-7. Post a "execution started" message to Slack. Post progress updates every 30 seconds if stdout has new content (max 1 update per 30s to avoid flooding).
-8. On exit code 0:
+6. Post an "execution started" message to Slack. Post progress updates every 30 seconds if stdout has new content (max 1 update per 30s to avoid flooding).
+7. On exit code 0:
    - Verify there are new commits on the branch (if not, post "no changes were made" and end).
-   - `git push origin specflow/<session-id>`.
+   - `git push origin specflow/<session-id>` from the worktree.
    - Run `gh pr create --title "<title>" --body "<body>"` where:
      - `<title>` is extracted from the first line of the plan (truncated to 72 chars), or falls back to the original Slack message (first 72 chars).
      - `<body>` is the full plan text.
    - Capture the PR URL.
    - Post PR link to Slack thread.
-9. On non-zero exit:
+8. On non-zero exit:
    - Capture last 50 lines of stderr.
    - Post truncated error to Slack thread.
    - Set session status to done with error.
-10. Clean up: delete the temp plan file.
+9. Clean up: delete the temp plan file. Remove the worktree: `git worktree remove /tmp/specflow-wt-<session-id>`.
 
 ### Git Ownership
 
@@ -354,12 +362,23 @@ Using `@slack/bolt` in Socket Mode:
 
 ### Confirmation Detection
 
-When the session is in `awaiting_confirmation`, the bot uses a **two-pronged approach**:
+When the planning agent produces a final plan, the bot posts it as a Slack message with **Block Kit interactive buttons**:
 
-1. **Reaction-based (primary):** The plan message includes a footer: "React with :white_check_mark: to confirm, or reply with changes." A `:white_check_mark:` reaction on the plan message from the initiating user triggers execution. This is unambiguous.
-2. **Message-based (fallback):** If the user replies with a short affirmative message (< 20 characters, matching patterns: "confirm", "approved", "lgtm", "go", "ship it", "yes", "do it"), it counts as confirmation. Messages longer than 20 characters are treated as edit requests and routed back to the planning agent.
+```
+[Plan text in markdown blocks]
 
-This avoids false positives like "I haven't confirmed yet" — that message is > 20 chars and would be treated as an edit request.
+───────────────────
+[ ✅ Confirm ]  [ ✏️ Edit ]  [ ❌ Cancel ]
+```
+
+**Button actions:**
+- **Confirm:** Transitions session to `executing`. Only the initiating user can confirm (checked via `user_id` on the action payload). Buttons are replaced with "Confirmed by @user — execution started."
+- **Edit:** Bot replies in the thread: "What would you like to change?" and transitions to `editing` state. Thread replies are routed back to the planning agent. When a revised plan is ready, a new message with buttons is posted.
+- **Cancel:** Transitions session to `done` with no error, no PR. Buttons are replaced with "Cancelled by @user." Bot posts a confirmation: "Session cancelled. Start a new request anytime."
+
+**Slack requirements:** The app needs the `interactivity` feature enabled (Request URL for Socket Mode is handled automatically by Bolt). No additional OAuth scopes needed — button interactions are sent via the existing Socket Mode WebSocket.
+
+**Thread replies during `awaiting_confirmation`:** Any text reply in the thread (not a button click) is treated as an edit request and routed to the planning agent. This provides a natural fallback if the user prefers typing over buttons.
 
 ### Startup Validation
 
