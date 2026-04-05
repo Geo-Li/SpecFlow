@@ -169,20 +169,26 @@ Admin can override the system prompt via the dashboard.
 
 ## Executor (Claude Code CLI)
 
-### Concurrency Model
+### Execution Modes
 
-**Parallel execution via git worktrees.** Each session gets its own isolated worktree, so multiple Claude Code processes can run simultaneously on the same repo without interfering with each other.
+Users can choose how the executor manages git for their session. This can be specified during the planning conversation or at confirmation time. Two modes:
 
-When a session is confirmed:
-1. `git fetch origin` on the main repo to get latest state.
-2. Create a worktree: `git worktree add /tmp/specflow-wt-<session-id> -b specflow/<session-id> origin/<default-branch>`.
-3. Run Claude Code CLI in the worktree directory (`/tmp/specflow-wt-<session-id>`).
-4. Push, create PR from the worktree.
-5. Clean up: `git worktree remove /tmp/specflow-wt-<session-id>`.
+**Branch mode:**
+- Forks a new branch (`specflow/<session-id>`) from a user-specified base branch (e.g., `main`, `develop`, `feature/auth`).
+- Executes in the **main repo checkout** directory.
+- **Constraint:** Only one branch-mode execution can run per repo at a time, since they share the working directory. If another branch-mode execution is running on the same repo, the session queues with a position notification.
+- Best for: simple tasks, users who want changes based on a specific feature branch.
 
-This means 10 teammates can trigger 10 tasks simultaneously — each gets its own directory, branch, and Claude Code process with zero collisions.
+**Worktree mode (default):**
+- Creates an isolated git worktree at `/tmp/specflow-wt-<session-id>`, branching from a user-specified base (defaults to the repo's default branch).
+- Executes in the worktree directory — fully isolated from the main checkout and other worktrees.
+- **Parallel-safe:** Multiple worktree-mode executions can run simultaneously on the same repo with zero collisions.
+- Clean up: worktree is removed after PR creation or on failure.
+- Best for: team use, parallel tasks, safety.
 
-**Resource limits:** Admin can configure `maxConcurrentExecutions` in the dashboard (default: 3). When the limit is reached, new confirmations enter a FIFO queue and the user is notified: "Your task is queued (position #N). You'll be notified when execution starts."
+If the user doesn't specify a mode, **worktree mode** is used (safest). If the user doesn't specify a base branch, the repo's configured default branch is used.
+
+**Resource limits:** Admin can configure `maxConcurrentExecutions` in the dashboard (default: 3). When the limit is reached, new confirmations enter a FIFO queue and the user is notified: "Your task is queued (position #N). You'll be notified when execution starts." This limit applies across both modes.
 
 ### Repo Selection
 
@@ -193,28 +199,40 @@ When a user triggers a task from Slack:
 
 ### Execution Flow
 
+**Setup phase (both modes):**
 1. Validate the configured repo path exists and is a git repo.
 2. `git fetch origin` on the main repo to get latest remote state.
-3. Create an isolated worktree: `git worktree add /tmp/specflow-wt-<session-id> -b specflow/<session-id> origin/<default-branch>`. If the branch already exists (retry scenario), append a numeric suffix.
+3. Determine working directory based on mode:
+   - **Worktree mode:** `git worktree add /tmp/specflow-wt-<session-id> -b specflow/<session-id> origin/<base-branch>`. If branch exists, append numeric suffix.
+   - **Branch mode:** Acquire per-repo lock (wait if another branch-mode session is active). `git checkout <base-branch> && git pull origin <base-branch>`, then `git checkout -b specflow/<session-id>`. Working directory is the main repo path.
 4. Write the confirmed plan to a temp file (to avoid shell argument length limits).
+
+**Execution phase:**
 5. Spawn `claude` CLI as a child process:
-   - Working directory: the worktree path (`/tmp/specflow-wt-<session-id>`)
+   - Working directory: worktree path or main repo path (depending on mode).
    - Command: `claude --print -p "$(cat /tmp/specflow-<session-id>.txt)"` — uses `--print` for non-interactive single-pass execution. The `-p` flag passes the prompt.
    - The plan prompt instructs Claude Code to make changes and commit them.
 6. Post an "execution started" message to Slack. Post progress updates every 30 seconds if stdout has new content (max 1 update per 30s to avoid flooding).
+
+**Completion phase:**
 7. On exit code 0:
    - Verify there are new commits on the branch (if not, post "no changes were made" and end).
-   - `git push origin specflow/<session-id>` from the worktree.
-   - Run `gh pr create --title "<title>" --body "<body>"` where:
+   - `git push origin specflow/<session-id>`.
+   - Run `gh pr create --title "<title>" --body "<body>" --base <base-branch>` where:
      - `<title>` is extracted from the first line of the plan (truncated to 72 chars), or falls back to the original Slack message (first 72 chars).
      - `<body>` is the full plan text.
+     - `<base-branch>` is the user-specified base branch (so PRs target the right branch).
    - Capture the PR URL.
    - Post PR link to Slack thread.
 8. On non-zero exit:
    - Capture last 50 lines of stderr.
    - Post truncated error to Slack thread.
    - Set session status to done with error.
-9. Clean up: delete the temp plan file. Remove the worktree: `git worktree remove /tmp/specflow-wt-<session-id>`.
+
+**Cleanup phase:**
+9. Delete the temp plan file.
+10. **Worktree mode:** `git worktree remove /tmp/specflow-wt-<session-id>`.
+11. **Branch mode:** Release per-repo lock. Checkout default branch: `git checkout <default-branch>`.
 
 ### Git Ownership
 
