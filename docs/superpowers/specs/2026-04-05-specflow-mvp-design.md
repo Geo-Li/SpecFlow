@@ -70,6 +70,16 @@ specflow/
 - Both import from `shared` only
 - `shared` has zero runtime dependencies (Zod is the only dep, for config validation)
 
+### Runtime Composition
+
+Express and Next.js run as **separate processes** on different ports:
+- Express (`packages/server`): port 3001 — handles Slack events (via Bolt Socket Mode, which manages its own WebSocket and does NOT use Express), REST API for the dashboard, and Claude Code execution.
+- Next.js (`packages/web`): port 3000 — the admin dashboard, calls Express REST API.
+
+Bolt's Socket Mode uses its own receiver (not Express). Express is only used for the REST API. They coexist in the same process but are independent: Bolt manages its WebSocket connection to Slack, Express listens on a port for HTTP.
+
+Turborepo orchestrates starting both with `turbo dev`.
+
 ## Key Entities
 
 ### Session
@@ -93,21 +103,30 @@ Fields:
 ### Session State Machine
 
 ```
-idle -> planning -> awaiting_confirmation -> executing -> pr_created -> done
+idle -> planning -> awaiting_confirmation -> executing -> done
                         ^       |
                         |       v
                       editing (user requests changes to plan)
+
+Any state can transition to -> done (with error) on unrecoverable failure or timeout.
 ```
 
 Transitions:
 - `idle -> planning`: Slack message received, thread created
 - `planning -> awaiting_confirmation`: Planning LLM produces a plan, posted to thread
+- `planning -> done`: Planning LLM fails after retry, session ends with error
 - `awaiting_confirmation -> editing`: User requests changes
 - `editing -> awaiting_confirmation`: Revised plan posted
-- `awaiting_confirmation -> executing`: User confirms (e.g., reacts with checkmark or says "confirmed")
-- `executing -> pr_created`: Claude Code exits 0, PR created successfully
-- `executing -> done`: With error, if Claude Code fails
-- `pr_created -> done`: PR link posted to Slack
+- `editing -> done`: Planning LLM fails during revision after retry
+- `awaiting_confirmation -> executing`: User confirms (see Confirmation Detection below)
+- `executing -> done`: Claude Code exits 0, PR created, link posted (success). OR Claude Code fails (error).
+- `* -> done`: Session timeout after 30 minutes of inactivity (no user messages). Server posts a timeout notice to the Slack thread.
+
+Note: `pr_created` was collapsed into `done` with `prUrl` populated. The `done` state carries either a `prUrl` (success) or `error` (failure).
+
+### Session Cleanup
+
+Sessions in any non-terminal state are checked every 5 minutes. If `updatedAt` is older than 30 minutes, the session transitions to `done` with a timeout error. The Slack thread receives a message: "This session timed out due to inactivity. Start a new request to try again."
 
 ### Storage
 
@@ -150,21 +169,48 @@ Admin can override the system prompt via the dashboard.
 
 ## Executor (Claude Code CLI)
 
+### Concurrency Model
+
+**Serial execution with a queue.** Only one Claude Code CLI process runs at a time. If a session is confirmed while another is executing, it enters a FIFO queue and the user is notified: "Your task is queued (position #N). You'll be notified when execution starts."
+
+This avoids git state collisions on the same repo. Future versions may support parallel execution via git worktrees.
+
+### Repo Selection
+
+When a user triggers a task from Slack:
+- If only **one repo** is configured, it is used automatically.
+- If **multiple repos** are configured, the bot asks the user to pick one (posting a numbered list in the thread). The user replies with the number.
+- Admin can set a **default repo** in the dashboard. If set, the default is used unless the user specifies otherwise.
+
 ### Execution Flow
 
-1. Validate the configured repo path exists and is a git repo
-2. Create a new branch: `specflow/<session-id>` from the default branch
-3. Spawn `claude` CLI as a child process:
+1. Validate the configured repo path exists and is a git repo.
+2. `git fetch origin` to ensure we have latest remote state.
+3. `git checkout <default-branch> && git pull origin <default-branch>` to sync.
+4. Create and checkout a new branch: `specflow/<session-id>` from the default branch. If the branch already exists (retry scenario), append a numeric suffix: `specflow/<session-id>-2`.
+5. Write the confirmed plan to a temp file (to avoid shell argument length limits).
+6. Spawn `claude` CLI as a child process:
    - Working directory: the repo path
-   - Prompt: the confirmed plan text
-   - Flags: `--print` for non-interactive output (configurable)
-4. Stream stdout/stderr, post periodic status updates to Slack thread
-5. On exit code 0:
-   - Run `gh pr create --title "<title>" --body "<plan>"`
-   - Capture the PR URL
-6. On non-zero exit:
-   - Post error summary to Slack thread
-   - Set session status to done with error
+   - Command: `claude --print -p "$(cat /tmp/specflow-<session-id>.txt)"` — uses `--print` for non-interactive single-pass execution. The `-p` flag passes the prompt.
+   - The plan prompt instructs Claude Code to make changes and commit them.
+7. Post a "execution started" message to Slack. Post progress updates every 30 seconds if stdout has new content (max 1 update per 30s to avoid flooding).
+8. On exit code 0:
+   - Verify there are new commits on the branch (if not, post "no changes were made" and end).
+   - `git push origin specflow/<session-id>`.
+   - Run `gh pr create --title "<title>" --body "<body>"` where:
+     - `<title>` is extracted from the first line of the plan (truncated to 72 chars), or falls back to the original Slack message (first 72 chars).
+     - `<body>` is the full plan text.
+   - Capture the PR URL.
+   - Post PR link to Slack thread.
+9. On non-zero exit:
+   - Capture last 50 lines of stderr.
+   - Post truncated error to Slack thread.
+   - Set session status to done with error.
+10. Clean up: delete the temp plan file.
+
+### Git Ownership
+
+The **executor** owns all git operations (fetch, branch, push, PR creation). Claude Code CLI is responsible only for making code changes and committing them. The executor handles branch management and PR creation.
 
 ### Requirements
 
@@ -179,7 +225,7 @@ Admin can override the system prompt via the dashboard.
 - Next.js 14+ (App Router)
 - Tailwind CSS
 - Headless UI (for accessible interactive components: modals, dropdowns, toggles)
-- Auth: simple token-based auth for MVP (single admin password)
+- Auth: simple token-based auth for MVP (see Auth section below)
 
 ### Pages
 
@@ -207,6 +253,16 @@ Admin can override the system prompt via the dashboard.
 | DELETE | `/api/repos/:id` | Delete repo |
 | GET | `/api/sessions` | List sessions (with filters) |
 | GET | `/api/sessions/:id` | Get session detail |
+
+### Dashboard Auth
+
+Single-admin password auth for MVP:
+- Admin password is set via environment variable `SPECFLOW_ADMIN_PASSWORD` (required at startup).
+- Login page at `/login`: admin enters password.
+- On success, server issues a JWT (signed with a random secret generated at startup, or `SPECFLOW_JWT_SECRET` env var if set). Token is stored in an httpOnly cookie.
+- All `/api/*` routes check for the cookie. 401 if missing/invalid.
+- Token expires after 24 hours. No refresh — admin logs in again.
+- No user management, no roles. Single admin only.
 
 ### Config Persistence
 
@@ -294,7 +350,27 @@ Using `@slack/bolt` in Socket Mode:
 - `app_mention` event: User mentions bot in a channel. Extract text, create session, start thread.
 - `message.im` event: User DMs the bot. Extract text, create session, reply in DM.
 - Thread replies: When `threadTs` matches an active session, route the message to the planning agent.
-- Confirmation detection: Look for explicit confirmation keywords ("confirm", "approved", "go ahead", "ship it") or a checkmark reaction (`:white_check_mark:`).
+- Confirmation detection: See "Confirmation Detection" section below.
+
+### Confirmation Detection
+
+When the session is in `awaiting_confirmation`, the bot uses a **two-pronged approach**:
+
+1. **Reaction-based (primary):** The plan message includes a footer: "React with :white_check_mark: to confirm, or reply with changes." A `:white_check_mark:` reaction on the plan message from the initiating user triggers execution. This is unambiguous.
+2. **Message-based (fallback):** If the user replies with a short affirmative message (< 20 characters, matching patterns: "confirm", "approved", "lgtm", "go", "ship it", "yes", "do it"), it counts as confirmation. Messages longer than 20 characters are treated as edit requests and routed back to the planning agent.
+
+This avoids false positives like "I haven't confirmed yet" — that message is > 20 chars and would be treated as an edit request.
+
+### Startup Validation
+
+On startup, the server runs health checks and logs warnings/errors:
+- **Required:** `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` env vars are set (fatal if missing).
+- **Required:** `SPECFLOW_ADMIN_PASSWORD` env var is set (fatal if missing).
+- **Warning:** `claude` CLI is on PATH and responds to `claude --version`.
+- **Warning:** `gh` CLI is on PATH and `gh auth status` succeeds.
+- **Warning:** All configured repo paths exist and are git repos.
+
+Fatal checks prevent startup. Warnings allow startup but are logged prominently and shown on the dashboard overview page.
 
 ## Error Handling
 
