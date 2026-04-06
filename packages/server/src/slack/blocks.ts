@@ -1,4 +1,4 @@
-import type { KnownBlock } from "@slack/bolt";
+import type { KnownBlock } from "@slack/types";
 
 export function buildPlanMessage(plan: string, sessionId: string): KnownBlock[] {
   const chunks = splitText(plan, 2900);

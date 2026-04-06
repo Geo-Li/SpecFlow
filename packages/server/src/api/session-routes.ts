@@ -6,7 +6,7 @@ export function createSessionRouter(): Router {
 
   router.get("/api/sessions", (req: Request, res: Response) => {
     let sessions = getAllSessions();
-    const status = req.query.status as string;
+    const status = Array.isArray(req.query.status) ? req.query.status[0] : req.query.status as string | undefined;
     if (status) { sessions = sessions.filter((s) => s.status === status); }
     const summary = sessions.map((s) => ({
       id: s.id, status: s.status, userId: s.userId,
@@ -17,7 +17,7 @@ export function createSessionRouter(): Router {
   });
 
   router.get("/api/sessions/:id", (req: Request, res: Response) => {
-    const session = getSession(req.params.id);
+    const session = getSession(req.params.id as string);
     if (!session) { res.status(404).json({ error: "Session not found" }); return; }
     res.json(session);
   });

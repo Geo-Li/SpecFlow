@@ -130,7 +130,7 @@ export function registerHandlers(app: App): void {
   app.event("app_mention", async ({ event }) => {
     const threadTs = event.ts;
     const channelId = event.channel;
-    const userId = event.user;
+    const userId = event.user ?? "unknown";
     const text = event.text.replace(/<@[A-Z0-9]+>/g, "").trim();
 
     if (event.thread_ts) {
