@@ -1,0 +1,31 @@
+{
+  "name": "@specflow/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@specflow/shared": "*",
+    "@slack/bolt": "^4",
+    "@anthropic-ai/sdk": "^0.39",
+    "openai": "^4",
+    "express": "^4.21",
+    "jsonwebtoken": "^9",
+    "nanoid": "^5",
+    "cors": "^2.8",
+    "cookie-parser": "^1.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5",
+    "@types/jsonwebtoken": "^9",
+    "@types/cors": "^2",
+    "@types/cookie-parser": "^1",
+    "tsx": "^4",
+    "typescript": "^5.5"
+  }
+}

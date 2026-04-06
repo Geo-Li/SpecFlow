@@ -1,0 +1,27 @@
+{
+  "name": "@specflow/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "clean": "rm -rf .next"
+  },
+  "dependencies": {
+    "@specflow/shared": "*",
+    "next": "^14",
+    "react": "^18",
+    "react-dom": "^18",
+    "@headlessui/react": "^2",
+    "@heroicons/react": "^2"
+  },
+  "devDependencies": {
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "tailwindcss": "^3.4",
+    "postcss": "^8",
+    "autoprefixer": "^10",
+    "typescript": "^5.5"
+  }
+}
