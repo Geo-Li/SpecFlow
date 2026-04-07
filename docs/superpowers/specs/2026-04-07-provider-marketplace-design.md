@@ -108,6 +108,57 @@ type: z.enum(["anthropic", "openai", "google", "openai-compatible"])
 
 No new provider file needed for Google — it reuses `openai-provider.ts` with a different base URL.
 
+## Files to Update
+
+Both the Zod schema and the hand-written TypeScript interface must be updated in lockstep:
+
+- `packages/shared/src/config.ts` — expand `type` enum in `providerConfigSchema`
+- `packages/shared/src/types.ts` — expand `type` union in `ProviderConfig` interface
+
+### URL Validation Change
+
+The current `safeUrl` validator enforces HTTPS-only (`u.startsWith("https://")`). This breaks local providers (Ollama, LM Studio, vLLM) which use `http://localhost:...`. Change the validator to allow `http://` for localhost and private network addresses:
+
+```typescript
+const safeUrl = z
+  .string()
+  .url()
+  .refine(
+    (u) => u.startsWith("https://") || u.startsWith("http://localhost") || u.startsWith("http://127.0.0.1"),
+    "Must use HTTPS (or http for localhost)"
+  );
+```
+
+## Design Decisions
+
+### One provider per first-party tab
+
+Each first-party tab (Anthropic, OpenAI, Google) supports exactly **one** configured provider. The tab shows either the setup form or the connected state — not a list. This keeps the UX simple. Users who need multiple configs for the same vendor (e.g., two Anthropic keys) can add extras via the Marketplace "Custom Provider" option.
+
+### Base URL handling for first-party providers
+
+First-party tabs do not show a base URL field. The base URL is **not persisted to config** — it is resolved server-side in `getProvider()` based on the `type` field. The config only stores `type`, `apiKey`, and `model`.
+
+### Google API key format
+
+Google's OpenAI-compatible endpoint accepts the standard `Authorization: Bearer <key>` header when using a Gemini API key (not a service account). The OpenAI SDK's default auth works as-is — no adaptation needed in `createOpenAIProvider`.
+
+### Button label: "Save" not "Connect"
+
+No connectivity test is performed on save. The button should read **"Save"** (not "Save & Connect"). The "Connected" badge means "configured," not "verified." This avoids blocking the UI on slow or offline API calls. A future enhancement could add a "Test Connection" button.
+
+### Existing `openai-compatible` configs
+
+Existing provider configs with `type: "openai-compatible"` are left as-is — no auto-migration. They appear in the configured providers list on the Marketplace tab. Users can manually reconfigure if they want to move to a first-party tab.
+
+### Design token usage
+
+- Connected badge: `colors.success` text on `colors["success-light"]` background
+- Tab active state: `colors.primary` underline, `colors["text-primary"]` text
+- Tab inactive: `colors["text-secondary"]` text
+- Category headers: `colors["text-primary"]`, `font-medium`
+- Provider descriptions: `colors["text-secondary"]`, `text-sm`
+
 ## Component Structure
 
 ```
