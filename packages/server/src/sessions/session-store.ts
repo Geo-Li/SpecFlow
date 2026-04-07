@@ -5,21 +5,21 @@ const sessions = new Map<string, Session>();
 const threadIndex = new Map<string, string>();
 
 export interface CreateSessionParams {
-  channelId: string;
-  threadTs: string;
   userId: string;
   repoId: string;
   providerId: string;
   originalMessage: string;
   executionMode?: ExecutionMode;
   baseBranch?: string;
+  channelId?: string;
+  threadTs?: string;
+  source: "slack" | "chat";
+  title?: string;
 }
 
 export function createSession(params: CreateSessionParams): Session {
   const session: Session = {
     id: nanoid(),
-    channelId: params.channelId,
-    threadTs: params.threadTs,
     userId: params.userId,
     conversationHistory: [],
     plan: null,
@@ -34,9 +34,15 @@ export function createSession(params: CreateSessionParams): Session {
     updatedAt: new Date().toISOString(),
     error: null,
     originalMessage: params.originalMessage,
+    source: params.source,
+    title: params.title || null,
+    ...(params.channelId && { channelId: params.channelId }),
+    ...(params.threadTs && { threadTs: params.threadTs }),
   };
   sessions.set(session.id, session);
-  threadIndex.set(`${params.channelId}:${params.threadTs}`, session.id);
+  if (params.channelId && params.threadTs) {
+    threadIndex.set(`${params.channelId}:${params.threadTs}`, session.id);
+  }
   return session;
 }
 
@@ -63,6 +69,33 @@ export function getAllSessions(): Session[] {
   );
 }
 
+export function getChatSessions(): Session[] {
+  return Array.from(sessions.values())
+    .filter((s) => s.source === "chat")
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
 export function getActiveSessions(): Session[] {
-  return getAllSessions().filter((s) => s.status !== "done");
+  const active: Session[] = [];
+  for (const session of sessions.values()) {
+    if (session.status !== "done") active.push(session);
+  }
+  return active;
+}
+
+const EVICTION_AGE_MS = 24 * 60 * 60 * 1000;
+
+export function evictDoneSessions(): number {
+  const now = Date.now();
+  let evicted = 0;
+  for (const [id, session] of sessions) {
+    if (session.status === "done" && now - new Date(session.updatedAt).getTime() > EVICTION_AGE_MS) {
+      sessions.delete(id);
+      if (session.channelId && session.threadTs) {
+        threadIndex.delete(`${session.channelId}:${session.threadTs}`);
+      }
+      evicted++;
+    }
+  }
+  return evicted;
 }

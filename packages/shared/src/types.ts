@@ -28,12 +28,13 @@ export interface RepoConfig {
   localPath: string;
   defaultBranch: string;
   isDefault: boolean;
+  executionMode: ExecutionMode;
 }
 
 export interface Session {
   id: string;
-  channelId: string;
-  threadTs: string;
+  channelId?: string;
+  threadTs?: string;
   userId: string;
   conversationHistory: Message[];
   plan: string | null;
@@ -48,6 +49,8 @@ export interface Session {
   updatedAt: string;
   error: string | null;
   originalMessage: string;
+  source: "slack" | "chat";
+  title: string | null;
 }
 
 export interface AppConfig {
