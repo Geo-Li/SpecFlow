@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1 class="logo">SpecFlow</h1>
+
+    <div id="status" class="status"></div>
+
+    <div id="login-form">
+      <label for="server-url">Server URL</label>
+      <input type="url" id="server-url" placeholder="http://localhost:3001">
+
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="Enter password">
+
+      <button id="login-btn" class="btn-primary">Login</button>
+      <div id="error" class="error"></div>
+    </div>
+
+    <div id="logged-in" style="display:none">
+      <p class="connected">Connected to SpecFlow</p>
+      <button id="logout-btn" class="btn-secondary">Logout</button>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
