@@ -4,3 +4,6 @@ dist/
 .turbo/
 .env
 *.tsbuildinfo
+
+# Superpowers brainstorming sessions
+.superpowers/
