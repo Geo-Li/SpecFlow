@@ -1,11 +1,12 @@
 import OpenAI from "openai";
 import type { Message, ProviderConfig } from "@specflow/shared";
+import { PROVIDER_BASE_URLS } from "@specflow/shared";
 import type { PlanningAgent } from "./planner.js";
 
 export function createOpenAIProvider(config: ProviderConfig): PlanningAgent {
   const client = new OpenAI({
     apiKey: config.apiKey,
-    baseURL: config.baseUrl || "https://api.openai.com/v1",
+    baseURL: config.baseUrl || PROVIDER_BASE_URLS.openai,
   });
 
   return {

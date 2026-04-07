@@ -1,3 +1,4 @@
-export * from "./types.js";
-export * from "./config.js";
-export * from "./design-tokens.js";
+export * from "./types";
+export * from "./config";
+export * from "./design-tokens";
+export * from "./provider-catalog";

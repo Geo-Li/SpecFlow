@@ -9,12 +9,20 @@ export const gitRefName = z
 const safeUrl = z
   .string()
   .url()
-  .refine((u) => u.startsWith("https://"), "Must use HTTPS");
+  .refine((u) => {
+    if (u.startsWith("https://")) return true;
+    try {
+      const { hostname } = new URL(u);
+      return hostname === "localhost" || hostname === "127.0.0.1";
+    } catch {
+      return false;
+    }
+  }, "Must use HTTPS (or http for localhost)");
 
 export const providerConfigSchema = z.object({
   id: z.string(),
   name: z.string().min(1, "Provider name is required"),
-  type: z.enum(["anthropic", "openai-compatible"]),
+  type: z.enum(["anthropic", "openai", "google", "openai-compatible"]),
   apiKey: z.string().min(1, "API key is required"),
   model: z.string().min(1, "Model name is required"),
   baseUrl: safeUrl.optional(),

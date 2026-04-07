@@ -16,7 +16,7 @@ export interface Message {
 export interface ProviderConfig {
   id: string;
   name: string;
-  type: "anthropic" | "openai-compatible";
+  type: "anthropic" | "openai" | "google" | "openai-compatible";
   apiKey: string;
   model: string;
   baseUrl?: string;
