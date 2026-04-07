@@ -140,9 +140,7 @@ export function createChatRouter(): Router {
       if (session.status === "awaiting_confirmation") {
         assertTransition("awaiting_confirmation", "editing");
         updateSession(session.id, { status: "editing" });
-      }
-
-      if (session.status === "idle") {
+      } else if (session.status === "idle") {
         assertTransition("idle", "planning");
         updateSession(session.id, { status: "planning" });
       }

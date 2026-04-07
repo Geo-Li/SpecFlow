@@ -29,7 +29,7 @@ User (Slack)                    SpecFlow Server                     Claude Code 
 
 ### Approach: Monorepo, Single Process
 
-One Express server handles Slack events, the admin dashboard (Next.js), and Claude Code CLI execution. All in a TypeScript monorepo using npm workspaces + Turborepo.
+One Express server handles Slack events, the admin dashboard (Next.js), and Claude Code CLI execution. All in a TypeScript monorepo using pnpm workspaces + Turborepo.
 
 ### Monorepo Structure
 

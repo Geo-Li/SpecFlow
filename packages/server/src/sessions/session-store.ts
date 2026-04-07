@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import type { Session, ExecutionMode } from "@specflow/shared";
+import { gitRefName } from "@specflow/shared";
 
 const sessions = new Map<string, Session>();
 const threadIndex = new Map<string, string>();
@@ -18,6 +19,8 @@ export interface CreateSessionParams {
 }
 
 export function createSession(params: CreateSessionParams): Session {
+  const baseBranch = params.baseBranch || "main";
+  gitRefName.parse(baseBranch);
   const session: Session = {
     id: nanoid(),
     userId: params.userId,
@@ -26,7 +29,7 @@ export function createSession(params: CreateSessionParams): Session {
     planMessageTs: null,
     status: "idle",
     executionMode: params.executionMode || "worktree",
-    baseBranch: params.baseBranch || "main",
+    baseBranch,
     prUrl: null,
     repoId: params.repoId,
     providerId: params.providerId,

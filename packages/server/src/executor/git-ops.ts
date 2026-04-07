@@ -1,5 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const WORKTREE_DIR = join(homedir(), ".specflow", "worktrees");
 
 function git(args: string[], cwd: string): string {
   return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
@@ -17,7 +21,8 @@ export function fetchOrigin(repoPath: string): void {
 
 export function setupWorktree(repoPath: string, sessionId: string, baseBranch: string): { worktreePath: string; branchName: string } {
   const branchName = `specflow/${sessionId}`;
-  const worktreePath = `/tmp/specflow-wt-${sessionId}`;
+  mkdirSync(WORKTREE_DIR, { recursive: true, mode: 0o700 });
+  const worktreePath = join(WORKTREE_DIR, sessionId);
   git(["worktree", "add", worktreePath, "-b", branchName, `origin/${baseBranch}`], repoPath);
   return { worktreePath, branchName };
 }

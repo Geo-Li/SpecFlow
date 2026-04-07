@@ -1,20 +1,18 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, createHmac, randomBytes } from "node:crypto";
 
 let jwtSecret = "";
 let adminPassword = "";
 
 export function initAuth(secret: string, password: string): void { jwtSecret = secret; adminPassword = password; }
 
+const compareKey = randomBytes(32);
+
 function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return timingSafeEqual(bufA, bufB);
+  const hashA = createHmac("sha256", compareKey).update(a).digest();
+  const hashB = createHmac("sha256", compareKey).update(b).digest();
+  return timingSafeEqual(hashA, hashB);
 }
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -37,7 +35,7 @@ export function createAuthRouter(): Router {
     const { password } = req.body;
     if (!password || !safeCompare(password, adminPassword)) { res.status(401).json({ error: "Invalid password" }); return; }
     const token = jwt.sign({ admin: true }, jwtSecret, { algorithm: "HS256", expiresIn: "24h" });
-    res.cookie("specflow_token", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: 24 * 60 * 60 * 1000 });
+    res.cookie("specflow_token", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", maxAge: 24 * 60 * 60 * 1000 });
     res.json({ ok: true, token });
   });
   router.post("/api/auth/logout", (_req: Request, res: Response) => { res.clearCookie("specflow_token"); res.json({ ok: true }); });

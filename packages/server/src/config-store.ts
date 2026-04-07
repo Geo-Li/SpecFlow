@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { appConfigSchema } from "@specflow/shared";
@@ -6,6 +6,7 @@ import type { AppConfig } from "@specflow/shared";
 
 const CONFIG_DIR = join(homedir(), ".specflow");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
+const CONFIG_TMP_PATH = CONFIG_PATH + ".tmp";
 
 const DEFAULT_CONFIG: AppConfig = {
   defaultProviderId: null,
@@ -18,9 +19,13 @@ const DEFAULT_CONFIG: AppConfig = {
 
 let currentConfig: AppConfig = DEFAULT_CONFIG;
 
+function ensureConfigDir(): void {
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+}
+
 export function loadConfig(): AppConfig {
+  ensureConfigDir();
   if (!existsSync(CONFIG_PATH)) {
-    mkdirSync(CONFIG_DIR, { recursive: true });
     saveConfig(DEFAULT_CONFIG);
     return DEFAULT_CONFIG;
   }
@@ -29,19 +34,21 @@ export function loadConfig(): AppConfig {
     currentConfig = appConfigSchema.parse(raw);
     return currentConfig;
   } catch (err) {
-    console.error("Failed to load config, using defaults:", err);
-    currentConfig = DEFAULT_CONFIG;
-    return DEFAULT_CONFIG;
+    throw new Error(
+      `Failed to load config from ${CONFIG_PATH}: ${(err as Error).message}. ` +
+      `Fix or delete the file to use defaults.`
+    );
   }
 }
 
 export function getConfig(): AppConfig {
-  return currentConfig;
+  return structuredClone(currentConfig);
 }
 
 export function saveConfig(config: AppConfig): void {
+  ensureConfigDir();
   const validated = appConfigSchema.parse(config);
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(validated, null, 2));
+  writeFileSync(CONFIG_TMP_PATH, JSON.stringify(validated, null, 2), { mode: 0o600 });
+  renameSync(CONFIG_TMP_PATH, CONFIG_PATH);
   currentConfig = validated;
 }

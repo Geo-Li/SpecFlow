@@ -4,7 +4,7 @@
 
 **Goal:** Build a Slack-driven development automation tool that converses with users to create implementation plans, executes them via Claude Code CLI, and raises PRs — with an admin dashboard for configuration.
 
-**Architecture:** TypeScript monorepo (Turborepo + npm workspaces) with three packages: `server` (Express + Slack Bolt), `web` (Next.js dashboard), and `shared` (types + config schemas). Server handles Slack events via Socket Mode, planning agent conversations, Claude Code CLI execution, and REST API. Dashboard provides admin config UI.
+**Architecture:** TypeScript monorepo (Turborepo + pnpm workspaces) with three packages: `server` (Express + Slack Bolt), `web` (Next.js dashboard), and `shared` (types + config schemas). Server handles Slack events via Socket Mode, planning agent conversations, Claude Code CLI execution, and REST API. Dashboard provides admin config UI.
 
 **Tech Stack:** TypeScript, Turborepo, Express, @slack/bolt, @anthropic-ai/sdk, openai, Next.js 14 (App Router), Tailwind CSS, Headless UI, Zod, nanoid, jsonwebtoken
 
@@ -349,7 +349,7 @@ dist/
 
 - [ ] **Step 8: Install dependencies and verify build**
 
-Run: `npm install`
+Run: `pnpm install`
 Expected: Successful install with workspace links.
 
 Run: `npx turbo build`
@@ -1893,7 +1893,7 @@ git commit -m "feat(web): add dashboard pages (overview, settings, providers, re
 
 - [ ] **Step 1: Run npm install at root**
 
-Run: `npm install`
+Run: `pnpm install`
 Expected: All workspace dependencies resolve.
 
 - [ ] **Step 2: Run TypeScript compilation for all packages**

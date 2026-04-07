@@ -25,8 +25,21 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
+function isAllowedServerUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+  } catch {
+    return false;
+  }
+}
+
 async function handleLogin({ serverUrl, password }) {
   if (serverUrl) {
+    if (!isAllowedServerUrl(serverUrl)) {
+      throw new Error("Server URL must be http(s)://localhost or 127.0.0.1");
+    }
     await chrome.storage.local.set({ serverUrl });
   }
   const { serverUrl: url } = await getConfig();

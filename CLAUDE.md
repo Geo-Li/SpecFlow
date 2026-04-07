@@ -4,7 +4,7 @@ Slack-driven development automation tool. Users trigger tasks from Slack, a plan
 
 ## Architecture
 
-TypeScript monorepo (npm workspaces + Turborepo) with three packages:
+TypeScript monorepo (pnpm workspaces + Turborepo) with three packages:
 
 - **`packages/shared`** — Types, Zod config schemas, design tokens. Zero runtime deps except Zod.
 - **`packages/server`** — Express REST API (port 3001) + Slack Bolt (Socket Mode). Handles planning agent conversations, Claude Code CLI execution, session management, and admin API.
@@ -15,13 +15,13 @@ Package boundaries: `server` and `web` import from `shared` only. Never cross-im
 ## Commands
 
 ```bash
-npm install          # Install all workspace dependencies
-npm run dev          # Start both server and web (via Turborepo)
-npm run build        # Build all packages
+pnpm install         # Install all workspace dependencies
+pnpm dev             # Start both server and web (via Turborepo)
+pnpm build           # Build all packages
 
 # Individual packages
-cd packages/server && npm run dev    # Server only (tsx watch, port 3001)
-cd packages/web && npm run dev       # Dashboard only (next dev, port 3000)
+cd packages/server && pnpm dev       # Server only (tsx watch, port 3001)
+cd packages/web && pnpm dev          # Dashboard only (next dev, port 3000)
 ```
 
 ## Required Environment Variables

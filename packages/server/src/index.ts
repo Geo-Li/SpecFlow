@@ -1,3 +1,8 @@
+import { config as loadDotenv } from "dotenv";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+loadDotenv({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env") });
 import express from "express";
 import { validateEnv } from "./env.js";
 import { loadConfig } from "./config-store.js";
@@ -10,7 +15,7 @@ import { setupApi } from "./api/router.js";
 
 async function main(): Promise<void> {
   console.log("Starting SpecFlow server...");
-  const env = validateEnv();
+  const env = await validateEnv();
   for (const warning of env.warnings) console.warn(`WARNING: ${warning}`);
 
   const config = loadConfig();

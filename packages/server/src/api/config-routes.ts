@@ -1,19 +1,25 @@
 import { Router, type Request, type Response } from "express";
 import { getConfig, saveConfig } from "../config-store.js";
+import { maskApiKey } from "../utils.js";
 
 export function createConfigRouter(): Router {
   const router = Router();
 
   router.get("/api/config", (_req: Request, res: Response) => {
-    const config = getConfig();
-    const masked = {
-      ...config,
-      providers: config.providers.map((p) => ({
-        ...p,
-        apiKey: p.apiKey.slice(0, 8) + "..." + p.apiKey.slice(-4),
-      })),
-    };
-    res.json(masked);
+    try {
+      const config = getConfig();
+      const masked = {
+        ...config,
+        providers: config.providers.map((p) => ({
+          ...p,
+          apiKey: maskApiKey(p.apiKey),
+        })),
+      };
+      res.json(masked);
+    } catch (err) {
+      console.error("Failed to read config:", err);
+      res.status(500).json({ error: "Failed to read configuration" });
+    }
   });
 
   router.put("/api/config", (req: Request, res: Response) => {
@@ -30,7 +36,8 @@ export function createConfigRouter(): Router {
       saveConfig(updated);
       res.json({ ok: true });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      console.error("Failed to save config:", err);
+      res.status(500).json({ error: "Failed to save configuration" });
     }
   });
 

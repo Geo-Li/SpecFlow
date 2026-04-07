@@ -1,4 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 interface EnvResult {
   slackBotToken: string;
@@ -8,7 +12,7 @@ interface EnvResult {
   warnings: string[];
 }
 
-export function validateEnv(): EnvResult {
+export async function validateEnv(): Promise<EnvResult> {
   const warnings: string[] = [];
   const missing: string[] = [];
 
@@ -24,19 +28,21 @@ export function validateEnv(): EnvResult {
     throw new Error(`Missing required env vars: ${missing.join(", ")}`);
   }
 
-  const jwtSecret =
-    process.env.SPECFLOW_JWT_SECRET ||
-    Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-
-  try {
-    execFileSync("claude", ["--version"], { stdio: "pipe" });
-  } catch {
-    warnings.push("claude CLI not found on PATH — execution will fail");
+  let jwtSecret = process.env.SPECFLOW_JWT_SECRET;
+  if (!jwtSecret) {
+    jwtSecret = randomBytes(32).toString("hex");
+    warnings.push("SPECFLOW_JWT_SECRET not set — using random secret (sessions will not survive restarts)");
   }
 
-  try {
-    execFileSync("gh", ["auth", "status"], { stdio: "pipe" });
-  } catch {
+  const checks = await Promise.allSettled([
+    execFileAsync("claude", ["--version"]),
+    execFileAsync("gh", ["auth", "status"]),
+  ]);
+
+  if (checks[0].status === "rejected") {
+    warnings.push("claude CLI not found on PATH — execution will fail");
+  }
+  if (checks[1].status === "rejected") {
     warnings.push("gh CLI not authenticated — PR creation will fail");
   }
 

@@ -53,6 +53,8 @@ export interface Session {
   title: string | null;
 }
 
+export type SessionSummary = Pick<Session, "id" | "status" | "userId" | "originalMessage" | "prUrl" | "error" | "createdAt">;
+
 export interface AppConfig {
   defaultProviderId: string | null;
   defaultRepoId: string | null;

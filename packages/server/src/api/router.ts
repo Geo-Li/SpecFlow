@@ -31,8 +31,9 @@ export function setupApi(app: Express, jwtSecret: string, adminPassword: string)
       if (!origin) return callback(null, true);
       // Allow configured origins
       if (corsOrigins.some((allowed) => origin === allowed)) return callback(null, true);
-      // Allow Chrome extension origins
-      if (origin.startsWith("chrome-extension://")) return callback(null, true);
+      // Allow a specific Chrome extension origin (set SPECFLOW_EXTENSION_ORIGIN env var)
+      const extOrigin = process.env.SPECFLOW_EXTENSION_ORIGIN;
+      if (extOrigin && origin === extOrigin) return callback(null, true);
       callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
