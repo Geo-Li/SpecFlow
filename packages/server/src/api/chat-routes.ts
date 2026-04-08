@@ -1,120 +1,102 @@
 import { Router, type Request, type Response } from "express";
-import {
-  createSession,
-  getSession,
-  updateSession,
-  getChatSessions,
-} from "../sessions/session-store.js";
-import { assertTransition } from "../sessions/session-machine.js";
-import { createPlanningAgent } from "../planner/planner.js";
-import { DEFAULT_SYSTEM_PROMPT, PLAN_MARKER } from "../planner/system-prompt.js";
+import { PLAN_MARKER } from "../planner/system-prompt.js";
 import { getConfig } from "../config-store.js";
 import { executeSession } from "../executor/executor.js";
-import type { ProviderConfig, AppConfig } from "@specflow/shared";
-
-function getProvider(config: AppConfig): ProviderConfig {
-  const providerId = config.defaultProviderId;
-  if (!providerId)
-    throw new Error("No default LLM provider configured.");
-  const provider = config.providers.find((p) => p.id === providerId);
-  if (!provider) throw new Error(`Provider ${providerId} not found`);
-  return provider;
-}
-
-function getDefaultRepoId(config: AppConfig): string {
-  if (config.defaultRepoId) return config.defaultRepoId;
-  if (config.repos.length === 1) return config.repos[0].id;
-  if (config.repos.length === 0)
-    throw new Error("No repositories configured.");
-  throw new Error(
-    "Multiple repos configured but no default set."
-  );
-}
+import { convex, assertConvexEnabled } from "../convex-client.js";
+import { getDefaultRepoId, sanitizeError, buildLegacySession, TERMINAL_STATUSES, NO_MESSAGE_STATUSES } from "../utils.js";
 
 export function createChatRouter(): Router {
   const router = Router();
 
-  // List chat sessions
-  router.get("/api/chat/sessions", (_req: Request, res: Response) => {
-    const sessions = getChatSessions();
-    res.json(
-      sessions.map((s) => ({
-        id: s.id,
-        title: s.title,
-        status: s.status,
-        createdAt: s.createdAt,
-        updatedAt: s.updatedAt,
-      }))
-    );
+  // List chat sessions (dashboard source)
+  router.get("/api/chat/sessions", async (_req: Request, res: Response) => {
+    try {
+      assertConvexEnabled();
+      const requests = await convex.requests.list({});
+      const dashboardSessions = (requests || [])
+        .filter((r: any) => r.source === "dashboard")
+        .map((r: any) => ({
+          id: r._id,
+          title: r.title,
+          status: r.status,
+          createdAt: new Date(r._creationTime).toISOString(),
+          updatedAt: new Date(r._creationTime).toISOString(),
+        }));
+      res.json(dashboardSessions);
+    } catch (err) {
+      res.status(503).json({ error: sanitizeError(err, "Failed to fetch sessions") });
+    }
   });
 
   // Get session detail
-  router.get("/api/chat/sessions/:id", (req: Request, res: Response) => {
-    const session = getSession(req.params.id as string);
-    if (!session || session.source !== "chat") {
-      res.status(404).json({ error: "Session not found" });
-      return;
+  router.get("/api/chat/sessions/:id", async (req: Request, res: Response) => {
+    try {
+      assertConvexEnabled();
+      const request = await convex.requests.get(req.params.id as string);
+      if (!request || request.source !== "dashboard") {
+        res.status(404).json({ error: "Session not found" });
+        return;
+      }
+      res.json({
+        id: request._id,
+        title: request.title,
+        status: request.status,
+        plan: null,
+        prUrl: request.prUrl || null,
+        error: request.error || null,
+        createdAt: new Date(request._creationTime).toISOString(),
+        updatedAt: new Date(request._creationTime).toISOString(),
+      });
+    } catch (err) {
+      res.status(503).json({ error: sanitizeError(err, "Failed to fetch session") });
     }
-    res.json({
-      id: session.id,
-      title: session.title,
-      status: session.status,
-      conversationHistory: session.conversationHistory,
-      plan: session.plan,
-      prUrl: session.prUrl,
-      error: session.error,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-    });
   });
 
   // Create session
-  router.post("/api/chat/sessions", (req: Request, res: Response) => {
+  router.post("/api/chat/sessions", async (req: Request, res: Response) => {
     const { title } = req.body;
     if (!title || typeof title !== "string") {
       res.status(400).json({ error: "title is required" });
       return;
     }
 
-    let config: AppConfig;
-    let provider: ProviderConfig;
-    let repoId: string;
     try {
-      config = getConfig();
-      provider = getProvider(config);
-      repoId = getDefaultRepoId(config);
+      assertConvexEnabled();
+      const config = getConfig();
+      const repoId = getDefaultRepoId(config);
+
+      const { id } = await convex.requests.create({
+        orgId: "default",
+        requesterId: "admin",
+        source: "dashboard",
+        sourceRef: {},
+        type: "code_change",
+        title,
+        rawRequest: title,
+        repoId,
+      });
+
+      res.status(201).json({
+        id,
+        title,
+        status: "intake",
+        source: "dashboard",
+        conversationHistory: [],
+        createdAt: new Date().toISOString(),
+      });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Config error";
-      res.status(400).json({ error: msg });
-      return;
+      res.status(500).json({ error: sanitizeError(err, "Failed to create session") });
     }
-
-    const session = createSession({
-      userId: "admin",
-      repoId,
-      providerId: provider.id,
-      originalMessage: title,
-      source: "chat",
-      title,
-    });
-
-    res.status(201).json({
-      id: session.id,
-      title: session.title,
-      status: session.status,
-      source: session.source,
-      conversationHistory: session.conversationHistory,
-      createdAt: session.createdAt,
-    });
   });
 
   // Send message
   router.post(
     "/api/chat/sessions/:id/messages",
     async (req: Request, res: Response) => {
-      const session = getSession(req.params.id as string);
-      if (!session || session.source !== "chat") {
-        res.status(404).json({ error: "Session not found" });
+      try {
+        assertConvexEnabled();
+      } catch {
+        res.status(503).json({ error: "Convex not configured" });
         return;
       }
 
@@ -124,96 +106,48 @@ export function createChatRouter(): Router {
         return;
       }
 
-      const allowedStatuses = [
-        "idle",
-        "planning",
-        "awaiting_confirmation",
-        "editing",
-      ];
-      if (!allowedStatuses.includes(session.status)) {
-        res.status(400).json({
-          error: `Cannot send message: session is ${session.status}`,
-        });
+      const request = await convex.requests.get(req.params.id as string);
+      if (!request || request.source !== "dashboard") {
+        res.status(404).json({ error: "Session not found" });
         return;
       }
 
-      if (session.status === "awaiting_confirmation") {
-        assertTransition("awaiting_confirmation", "editing");
-        updateSession(session.id, { status: "editing" });
-      } else if (session.status === "idle") {
-        assertTransition("idle", "planning");
-        updateSession(session.id, { status: "planning" });
-      }
-
-      const current = getSession(session.id)!;
-      updateSession(session.id, {
-        conversationHistory: [
-          ...current.conversationHistory,
-          { role: "user", content },
-        ],
-      });
-
-      let config: AppConfig;
-      let provider: ProviderConfig;
-      try {
-        config = getConfig();
-        provider = getProvider(config);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Config error";
-        res.status(400).json({ error: msg });
+      if (NO_MESSAGE_STATUSES.includes(request.status as any)) {
+        res.status(400).json({ error: `Cannot send message: session is ${request.status}` });
         return;
       }
 
-      const agent = createPlanningAgent(provider);
-      const systemPrompt =
-        config.systemPromptOverride || DEFAULT_SYSTEM_PROMPT;
-      const refreshed = getSession(session.id)!;
-
       try {
-        // Retry once on failure (matches Slack handler pattern)
         let response: string;
-        try {
-          response = await agent.chat(refreshed.conversationHistory, systemPrompt);
-        } catch (firstErr) {
-          console.warn("Planning agent failed, retrying once:", firstErr);
-          response = await agent.chat(refreshed.conversationHistory, systemPrompt);
+
+        if (!request.threadId) {
+          const result = await convex.agent.startPlanning({
+            requestId: request._id,
+            rawRequest: content,
+            userId: "admin",
+          });
+          response = result.response;
+        } else {
+          const result = await convex.agent.continueThread({
+            threadId: request.threadId,
+            message: content,
+          });
+          response = result.response;
         }
 
-        if (response.includes(PLAN_MARKER)) {
-          assertTransition(
-            refreshed.status === "editing" ? "editing" : "planning",
-            "awaiting_confirmation"
-          );
-          updateSession(session.id, {
-            status: "awaiting_confirmation",
-            plan: response,
-            conversationHistory: [
-              ...refreshed.conversationHistory,
-              { role: "assistant", content: response },
-            ],
-          });
-          res.json({
-            role: "assistant",
-            content: response,
-            status: "awaiting_confirmation",
-          });
-        } else {
-          updateSession(session.id, {
-            conversationHistory: [
-              ...refreshed.conversationHistory,
-              { role: "assistant", content: response },
-            ],
-          });
-          const updated = getSession(session.id)!;
-          res.json({
-            role: "assistant",
-            content: response,
-            status: updated.status,
-          });
+        const hasPlan = response.includes(PLAN_MARKER);
+        if (hasPlan) {
+          await convex.requests.updateStatus({ id: request._id, status: "plan_ready" });
         }
+
+        res.json({
+          role: "assistant",
+          content: response,
+          status: hasPlan ? "plan_ready" : "clarifying",
+        });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Planning failed";
-        updateSession(session.id, { status: "done", error: msg });
+        const msg = sanitizeError(err, "Planning failed");
+        await convex.requests.updateStatus({ id: request._id, status: "failed", error: msg });
         res.status(500).json({ error: msg });
       }
     }
@@ -223,80 +157,107 @@ export function createChatRouter(): Router {
   router.post(
     "/api/chat/sessions/:id/confirm",
     async (req: Request, res: Response) => {
-      const session = getSession(req.params.id as string);
-      if (!session || session.source !== "chat") {
+      try {
+        assertConvexEnabled();
+      } catch {
+        res.status(503).json({ error: "Convex not configured" });
+        return;
+      }
+
+      const request = await convex.requests.get(req.params.id as string);
+      if (!request || request.source !== "dashboard") {
         res.status(404).json({ error: "Session not found" });
         return;
       }
 
-      if (session.status !== "awaiting_confirmation") {
-        res.status(400).json({
-          error: `Cannot confirm: session is ${session.status}`,
-        });
+      if (request.status !== "plan_ready") {
+        res.status(400).json({ error: `Cannot confirm: session is ${request.status}` });
         return;
       }
 
-      assertTransition(session.status, "executing");
-      updateSession(session.id, { status: "executing" });
+      const { id: jobId } = await convex.jobs.create({
+        requestId: request._id,
+        type: "claude_code_execution",
+      });
+
+      await convex.requests.updateStatus({
+        id: request._id,
+        status: "executing",
+        currentExecutionId: jobId,
+      });
 
       res.json({ status: "executing" });
 
+      // Execute in background
       const config = getConfig();
-      const repo = config.repos.find((r) => r.id === session.repoId);
+      const repo = config.repos.find((r) => r.id === request.repoId);
       if (!repo) {
-        updateSession(session.id, {
-          status: "done",
-          error: "Repo not found in config",
-        });
+        await Promise.all([
+          convex.requests.updateStatus({ id: request._id, status: "failed", error: "Repo not found" }),
+          convex.jobs.updateStatus({ id: jobId, status: "failed", error: "Repo not found" }),
+        ]);
         return;
       }
 
+      const legacySession = buildLegacySession(request, repo, "chat");
+
+      await convex.jobs.updateStatus({ id: jobId, status: "running" });
+
       const onStatus = (message: string) => {
-        console.log(`[chat][${session.id}] ${message}`);
+        console.log(`[chat][${request._id}] ${message}`);
       };
 
       try {
-        const result = await executeSession(session, repo, onStatus);
+        const result = await executeSession(legacySession, repo, onStatus);
         if (result.success && result.prUrl) {
-          updateSession(session.id, {
-            status: "done",
-            prUrl: result.prUrl,
-          });
+          await Promise.all([
+            convex.jobs.updateStatus({ id: jobId, status: "completed", output: result.prUrl }),
+            convex.requests.updateStatus({ id: request._id, status: "pr_created", prUrl: result.prUrl }),
+          ]);
         } else {
-          updateSession(session.id, {
-            status: "done",
-            error: result.error || "Unknown error",
-          });
+          const error = result.error || "Unknown error";
+          await Promise.all([
+            convex.jobs.updateStatus({ id: jobId, status: "failed", error }),
+            convex.requests.updateStatus({ id: request._id, status: "failed", error }),
+          ]);
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Execution failed";
-        updateSession(session.id, { status: "done", error: msg });
+        const msg = sanitizeError(err, "Execution failed");
+        await Promise.all([
+          convex.jobs.updateStatus({ id: jobId, status: "failed", error: msg }),
+          convex.requests.updateStatus({ id: request._id, status: "failed", error: msg }),
+        ]);
       }
     }
   );
 
   // Cancel session
-  router.post("/api/chat/sessions/:id/cancel", (req: Request, res: Response) => {
-    const session = getSession(req.params.id as string);
-    if (!session || session.source !== "chat") {
+  router.post("/api/chat/sessions/:id/cancel", async (req: Request, res: Response) => {
+    try {
+      assertConvexEnabled();
+    } catch {
+      res.status(503).json({ error: "Convex not configured" });
+      return;
+    }
+
+    const request = await convex.requests.get(req.params.id as string);
+    if (!request || request.source !== "dashboard") {
       res.status(404).json({ error: "Session not found" });
       return;
     }
 
-    if (session.status === "done") {
+    if (TERMINAL_STATUSES.includes(request.status as any)) {
       res.status(400).json({ error: "Session is already done" });
       return;
     }
 
-    if (session.status === "executing") {
-      res.status(400).json({
-        error: "Cannot cancel: session is executing",
-      });
+    if (request.status === "executing") {
+      res.status(400).json({ error: "Cannot cancel: session is executing" });
       return;
     }
 
-    updateSession(session.id, { status: "done" });
-    res.json({ status: "done" });
+    await convex.requests.updateStatus({ id: request._id, status: "cancelled" });
+    res.json({ status: "cancelled" });
   });
 
   return router;

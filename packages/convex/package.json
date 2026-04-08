@@ -1,0 +1,19 @@
+{
+  "name": "@specflow/convex",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "@ai-sdk/provider-utils": "^3.0.23",
+    "ai": "^5.0.29",
+    "@convex-dev/agent": "^0.3.2",
+    "convex": "^1.21.0",
+    "zod": "^3.25.76"
+  }
+}

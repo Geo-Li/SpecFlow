@@ -4,10 +4,11 @@ Slack-driven development automation tool. Users trigger tasks from Slack, a plan
 
 ## Architecture
 
-TypeScript monorepo (pnpm workspaces + Turborepo) with three packages:
+TypeScript monorepo (pnpm workspaces + Turborepo) with four packages:
 
 - **`packages/shared`** — Types, Zod config schemas, design tokens. Zero runtime deps except Zod.
-- **`packages/server`** — Express REST API (port 3001) + Slack Bolt (Socket Mode). Handles planning agent conversations, Claude Code CLI execution, session management, and admin API.
+- **`packages/convex`** — Convex backend for durable state: contribution requests, artifacts, approval gates, jobs, and the planning agent. Uses `@convex-dev/agent` for the conversation loop.
+- **`packages/server`** — Express REST API (port 3001) + Slack Bolt (Socket Mode). Thin Slack adapter + execution worker. Calls Convex HTTP endpoints for state management.
 - **`packages/web`** — Next.js 14 admin dashboard (port 3000). Tailwind CSS + Headless UI. Calls server REST API.
 
 Package boundaries: `server` and `web` import from `shared` only. Never cross-import.
@@ -22,6 +23,7 @@ pnpm build           # Build all packages
 # Individual packages
 cd packages/server && pnpm dev       # Server only (tsx watch, port 3001)
 cd packages/web && pnpm dev          # Dashboard only (next dev, port 3000)
+cd packages/convex && pnpm dev       # Convex dev server (syncs schema + functions)
 ```
 
 ## Required Environment Variables
@@ -31,6 +33,8 @@ SLACK_BOT_TOKEN=xoxb-...        # Slack bot token (required)
 SLACK_APP_TOKEN=xapp-...        # Slack app token for Socket Mode (required)
 SPECFLOW_ADMIN_PASSWORD=...     # Admin dashboard password (required)
 SPECFLOW_JWT_SECRET=...         # JWT signing secret (optional, auto-generated)
+CONVEX_SITE_URL=https://...     # Convex deployment URL (required)
+CONVEX_AUTH_TOKEN=...           # Shared secret for Convex HTTP auth (recommended)
 ```
 
 ## Key Files
@@ -40,7 +44,11 @@ SPECFLOW_JWT_SECRET=...         # JWT signing secret (optional, auto-generated)
 - `packages/server/src/slack/actions.ts` — Block Kit button handlers (Confirm/Edit/Cancel)
 - `packages/server/src/planner/` — Planning agent with Anthropic + OpenAI-compatible providers
 - `packages/server/src/executor/` — Claude Code CLI execution, git ops, PR creation
-- `packages/server/src/sessions/` — In-memory session store + state machine
+- `packages/server/src/convex-client.ts` — HTTP client for calling Convex backend
+- `packages/server/src/utils.ts` — Shared utilities (sanitizeError, getDefaultRepoId, buildLegacySession, status constants)
+- `packages/convex/convex/schema.ts` — Convex table definitions
+- `packages/convex/convex/agent.ts` — Planning agent definition with tools
+- `packages/convex/convex/http.ts` — HTTP endpoints for Express server integration
 - `packages/server/src/api/` — REST API routes + JWT auth
 - `packages/web/src/app/` — Dashboard pages (overview, settings, providers, repos, sessions)
 - `packages/shared/src/types.ts` — All TypeScript interfaces

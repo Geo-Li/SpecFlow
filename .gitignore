@@ -3,6 +3,7 @@ dist/
 .next/
 .turbo/
 .env
+.env.local
 *.tsbuildinfo
 
 # Superpowers brainstorming sessions

@@ -9,7 +9,6 @@ import { loadConfig } from "./config-store.js";
 import { createSlackApp } from "./slack/app.js";
 import { registerHandlers } from "./slack/handlers.js";
 import { registerActions } from "./slack/actions.js";
-import { startCleanupLoop } from "./sessions/session-cleanup.js";
 import { initExecutor } from "./executor/executor.js";
 import { setupApi } from "./api/router.js";
 
@@ -32,12 +31,6 @@ async function main(): Promise<void> {
   registerActions(slackApp);
   await slackApp.start();
   console.log("Slack bot connected (Socket Mode)");
-
-  startCleanupLoop(async (sessionId, channelId, threadTs) => {
-    try {
-      await slackApp.client.chat.postMessage({ channel: channelId, thread_ts: threadTs, text: "This session timed out due to inactivity. Start a new request to try again." });
-    } catch (err) { console.error("Failed to post timeout message:", err); }
-  });
 
   console.log("SpecFlow server is running.");
 }
