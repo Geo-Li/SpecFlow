@@ -8,6 +8,23 @@ export interface ClaudeRunResult {
 
 export type ProgressCallback = (output: string) => void;
 
+function buildExecutionPrompt(plan: string): string {
+  return [
+    "You are executing an approved implementation plan inside the current git repository.",
+    "",
+    "Requirements:",
+    "- Implement the approved plan in this repository.",
+    "- Make the smallest set of changes needed to complete the work.",
+    "- Run relevant tests or checks when feasible.",
+    "- If you make file changes, create a git commit before finishing.",
+    "- Do not push, open a PR, or change git remotes; the executor handles that.",
+    "- If the plan cannot be completed safely, explain why instead of guessing.",
+    "",
+    "Approved plan:",
+    plan,
+  ].join("\n");
+}
+
 export async function runClaude(
   workDir: string,
   plan: string,
@@ -19,7 +36,7 @@ export async function runClaude(
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    child.stdin.write(plan);
+    child.stdin.write(buildExecutionPrompt(plan));
     child.stdin.end();
 
     let stdout = "";

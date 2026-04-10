@@ -1,10 +1,34 @@
 export type SessionStatus =
   | "idle"
+  | "intake"
   | "planning"
+  | "clarifying"
+  | "plan_ready"
+  | "plan_approved"
   | "awaiting_confirmation"
   | "editing"
   | "executing"
-  | "done";
+  | "done"
+  | "cancelled"
+  | "failed"
+  | "pr_created"
+  | "blocked";
+
+export const TERMINAL_STATUSES: readonly SessionStatus[] = [
+  "done",
+  "cancelled",
+  "failed",
+  "pr_created",
+] as const;
+
+export type ProviderType = "anthropic" | "openai" | "google" | "openai-compatible";
+
+export interface RuntimeProviderPayload {
+  type: ProviderType;
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+}
 
 export type ExecutionMode = "worktree" | "branch";
 
@@ -13,13 +37,9 @@ export interface Message {
   content: string;
 }
 
-export interface ProviderConfig {
+export interface ProviderConfig extends RuntimeProviderPayload {
   id: string;
   name: string;
-  type: "anthropic" | "openai" | "google" | "openai-compatible";
-  apiKey: string;
-  model: string;
-  baseUrl?: string;
 }
 
 export interface RepoConfig {

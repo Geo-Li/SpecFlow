@@ -3,6 +3,43 @@ import { getConfig, saveConfig } from "../config-store.js";
 import { providerConfigSchema } from "@specflow/shared";
 import { nanoid } from "nanoid";
 import { maskApiKey } from "../utils.js";
+import {
+  discoverProviderModels,
+  type ProviderModelDiscoveryInput,
+} from "../provider-models.js";
+
+function resolveModelDiscoveryInput(
+  config: ReturnType<typeof getConfig>,
+  body: Record<string, unknown>,
+): ProviderModelDiscoveryInput {
+  const providerId =
+    typeof body.providerId === "string" ? body.providerId : undefined;
+  const savedProvider = providerId
+    ? config.providers.find((provider) => provider.id === providerId)
+    : undefined;
+
+  if (providerId && !savedProvider) {
+    throw new Error("Provider not found");
+  }
+
+  const type =
+    (typeof body.type === "string" ? body.type : savedProvider?.type) as
+      | ProviderModelDiscoveryInput["type"]
+      | undefined;
+  const apiKey =
+    typeof body.apiKey === "string" && body.apiKey.length > 0
+      ? body.apiKey
+      : savedProvider?.apiKey;
+  const baseUrl =
+    typeof body.baseUrl === "string" && body.baseUrl.length > 0
+      ? body.baseUrl
+      : savedProvider?.baseUrl;
+
+  if (!type) throw new Error("Provider type is required");
+  if (!apiKey) throw new Error("API key is required to discover models");
+
+  return { type, apiKey, baseUrl };
+}
 
 export function createProviderRouter(): Router {
   const router = Router();
@@ -14,6 +51,29 @@ export function createProviderRouter(): Router {
       apiKey: maskApiKey(p.apiKey),
     }));
     res.json(masked);
+  });
+
+  router.post("/api/providers/discover-models", async (req: Request, res: Response) => {
+    const config = getConfig();
+
+    let input: ProviderModelDiscoveryInput;
+    try {
+      input = resolveModelDiscoveryInput(
+        config,
+        (req.body ?? {}) as Record<string, unknown>,
+      );
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+      return;
+    }
+
+    try {
+      const models = await discoverProviderModels(input);
+      res.json({ models });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to fetch models";
+      res.status(502).json({ error: message });
+    }
   });
 
   router.post("/api/providers", (req: Request, res: Response) => {

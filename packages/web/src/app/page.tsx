@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { SessionSummary } from "@specflow/shared";
+import { type SessionSummary, TERMINAL_STATUSES } from "@specflow/shared";
 import { apiFetch } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/card";
@@ -12,7 +12,7 @@ export default function DashboardPage() {
 
   useEffect(() => { apiFetch<SessionSummary[]>("/api/sessions").then(setSessions).catch((err) => setError(err.message || "Failed to load sessions")); }, []);
 
-  const active = sessions.filter((s) => s.status !== "done");
+  const active = sessions.filter((s) => !TERMINAL_STATUSES.includes(s.status as any));
   const withPR = sessions.filter((s) => s.prUrl);
 
   return (

@@ -18,14 +18,23 @@ export function registerActions(app: App): void {
     const userId = body.user.id;
     if (!requestId) return;
 
-    const request = await convex.requests.get(requestId);
-    if (!request) return;
-    if (!request.sourceRef.channelId || !request.sourceRef.threadTs) return;
+    const detail = await convex.requests.getDetail(requestId);
+    if (!detail) return;
+    if (!detail.sourceRef.channelId || !detail.sourceRef.threadTs) return;
 
-    const channelId = request.sourceRef.channelId;
-    const threadTs = request.sourceRef.threadTs;
+    const channelId = detail.sourceRef.channelId;
+    const threadTs = detail.sourceRef.threadTs;
 
-    if (request.requesterId !== userId) {
+    if (detail.status !== "plan_ready") {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: `This request is currently ${detail.status}. Only plan-ready requests can be confirmed.`,
+      });
+      return;
+    }
+
+    if (detail.requesterId !== userId) {
       await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
@@ -34,7 +43,17 @@ export function registerActions(app: App): void {
       return;
     }
 
-    await convex.requests.updateStatus({ id: request._id, status: "plan_approved" });
+    const approvedPlan = detail?.currentPlan?.body;
+    if (!approvedPlan) {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: "No approved plan is stored for this request. Ask the planner to regenerate the plan first.",
+      });
+      return;
+    }
+
+    await convex.requests.updateStatus({ id: detail._id, status: "plan_approved" });
 
     await client.chat.update({
       channel: channelId,
@@ -44,21 +63,21 @@ export function registerActions(app: App): void {
     }).catch(() => {});
 
     const { id: jobId } = await convex.jobs.create({
-      requestId: request._id,
+      requestId: detail._id,
       type: "claude_code_execution",
     });
 
     await convex.requests.updateStatus({
-      id: request._id,
+      id: detail._id,
       status: "executing",
       currentExecutionId: jobId,
     });
 
     const config = getConfig();
-    const repo = config.repos.find((r) => r.id === request.repoId);
+    const repo = config.repos.find((r) => r.id === detail.repoId);
     if (!repo) {
       await Promise.all([
-        convex.requests.updateStatus({ id: request._id, status: "failed", error: "Repo not found in config" }),
+        convex.requests.updateStatus({ id: detail._id, status: "failed", error: "Repo not found in config" }),
         convex.jobs.updateStatus({ id: jobId, status: "failed", error: "Repo not found" }),
       ]);
       await client.chat.postMessage({
@@ -69,7 +88,7 @@ export function registerActions(app: App): void {
       return;
     }
 
-    const legacySession = buildLegacySession(request, repo, "slack");
+    const legacySession = buildLegacySession(detail, repo, "slack", approvedPlan);
 
     await convex.jobs.updateStatus({ id: jobId, status: "running" });
 
@@ -86,7 +105,7 @@ export function registerActions(app: App): void {
       if (result.success && result.prUrl) {
         await Promise.all([
           convex.jobs.updateStatus({ id: jobId, status: "completed", output: result.prUrl }),
-          convex.requests.updateStatus({ id: request._id, status: "pr_created", prUrl: result.prUrl }),
+          convex.requests.updateStatus({ id: detail._id, status: "pr_created", prUrl: result.prUrl }),
         ]);
         await client.chat.postMessage({
           channel: channelId,
@@ -97,7 +116,7 @@ export function registerActions(app: App): void {
         const error = result.error || "Unknown error";
         await Promise.all([
           convex.jobs.updateStatus({ id: jobId, status: "failed", error }),
-          convex.requests.updateStatus({ id: request._id, status: "failed", error }),
+          convex.requests.updateStatus({ id: detail._id, status: "failed", error }),
         ]);
         await client.chat.postMessage({
           channel: channelId,
@@ -110,7 +129,7 @@ export function registerActions(app: App): void {
       console.error("Execution error:", err);
       await Promise.all([
         convex.jobs.updateStatus({ id: jobId, status: "failed", error: message }),
-        convex.requests.updateStatus({ id: request._id, status: "failed", error: message }),
+        convex.requests.updateStatus({ id: detail._id, status: "failed", error: message }),
       ]);
       await client.chat.postMessage({
         channel: channelId,
@@ -133,6 +152,15 @@ export function registerActions(app: App): void {
 
     const channelId = request.sourceRef.channelId;
     const threadTs = request.sourceRef.threadTs;
+
+    if (request.status !== "plan_ready") {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: `This request is currently ${request.status}. Only plan-ready requests can be edited from the review buttons.`,
+      });
+      return;
+    }
 
     if (request.requesterId !== userId) {
       await client.chat.postEphemeral({
@@ -164,6 +192,15 @@ export function registerActions(app: App): void {
 
     const channelId = request.sourceRef.channelId;
     const threadTs = request.sourceRef.threadTs;
+
+    if (request.status === "executing") {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: "This request is already executing and can no longer be cancelled from the review buttons.",
+      });
+      return;
+    }
 
     if (request.requesterId !== userId) {
       await client.chat.postEphemeral({

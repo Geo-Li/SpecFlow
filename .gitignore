@@ -4,7 +4,27 @@ dist/
 .turbo/
 .env
 .env.local
+.env.production
+.env.*.local
 *.tsbuildinfo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Config secrets (runtime config lives at ~/.specflow/)
+config.json
 
 # Superpowers brainstorming sessions
 .superpowers/

@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { convex, assertConvexEnabled } from "../convex-client.js";
-import { sanitizeError } from "../utils.js";
+import { getConfig } from "../config-store.js";
 
 export function createSessionRouter(): Router {
   const router = Router();
@@ -9,7 +9,7 @@ export function createSessionRouter(): Router {
     try {
       assertConvexEnabled();
     } catch (err) {
-      res.status(503).json({ error: "Convex not configured. Set CONVEX_SITE_URL to enable session storage." });
+      res.status(503).json({ error: "Convex not configured. Set CONVEX_SITE_URL and CONVEX_AUTH_TOKEN to enable session storage." });
       return;
     }
 
@@ -39,31 +39,37 @@ export function createSessionRouter(): Router {
     try {
       assertConvexEnabled();
     } catch (err) {
-      res.status(503).json({ error: "Convex not configured. Set CONVEX_SITE_URL to enable session storage." });
+      res.status(503).json({ error: "Convex not configured. Set CONVEX_SITE_URL and CONVEX_AUTH_TOKEN to enable session storage." });
       return;
     }
 
     const id = req.params.id as string;
 
     try {
-      const request = await convex.requests.get(id);
-      if (!request) {
+      const detail = await convex.requests.getDetail(id);
+      if (!detail) {
         res.status(404).json({ error: "Session not found" });
         return;
       }
+      const config = getConfig();
+      const repo = detail.repoId ? config.repos.find((r) => r.id === detail.repoId) : undefined;
       res.json({
-        id: request._id,
-        status: request.status,
-        userId: request.requesterId,
-        originalMessage: request.rawRequest,
-        prUrl: request.prUrl || null,
-        error: request.error || null,
-        createdAt: new Date(request._creationTime).toISOString(),
-        updatedAt: new Date(request._creationTime).toISOString(),
-        source: request.source,
-        title: request.title,
-        channelId: request.sourceRef?.channelId,
-        threadTs: request.sourceRef?.threadTs,
+        id: detail._id,
+        status: detail.status,
+        userId: detail.requesterId,
+        originalMessage: detail.rawRequest,
+        plan: detail.currentPlan?.body ?? null,
+        conversationHistory: [],
+        prUrl: detail.prUrl || null,
+        error: detail.error || null,
+        executionMode: detail.executionMode || "worktree",
+        baseBranch: detail.baseBranch || repo?.defaultBranch || "main",
+        createdAt: new Date(detail._creationTime).toISOString(),
+        updatedAt: new Date(detail._creationTime).toISOString(),
+        source: detail.source,
+        title: detail.title,
+        channelId: detail.sourceRef?.channelId,
+        threadTs: detail.sourceRef?.threadTs,
       });
     } catch (err) {
       console.error("Failed to fetch session from Convex:", err);

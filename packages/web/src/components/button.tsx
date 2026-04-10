@@ -4,7 +4,7 @@ type Variant = "primary" | "secondary" | "danger";
 
 const variantStyles: Record<Variant, string> = {
   primary: "bg-primary text-white hover:bg-primary-dark",
-  secondary: "bg-white/60 border border-white/40 text-text-primary hover:bg-white/80",
+  secondary: "border border-border-dark text-text-primary hover:bg-black/5",
   danger: "bg-error text-white hover:bg-red-600",
 };
 

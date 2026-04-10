@@ -1,4 +1,4 @@
-import type { AppConfig, RepoConfig, Session } from "@specflow/shared";
+import type { AppConfig, ProviderConfig, RepoConfig, RuntimeProviderPayload, Session, SessionStatus } from "@specflow/shared";
 
 export function maskApiKey(key: string): string {
   if (key.length <= 12) return "***";
@@ -11,8 +11,12 @@ export function sanitizeError(err: unknown, fallback = "Unknown error"): string 
   return message;
 }
 
-export const TERMINAL_STATUSES = ["done", "cancelled", "failed"] as const;
-export const NO_MESSAGE_STATUSES = ["done", "cancelled", "failed", "executing", "plan_approved"] as const;
+export { TERMINAL_STATUSES } from "@specflow/shared";
+
+export function toRuntimePayload(provider: ProviderConfig): RuntimeProviderPayload {
+  return { type: provider.type, apiKey: provider.apiKey, model: provider.model, baseUrl: provider.baseUrl };
+}
+export const NO_MESSAGE_STATUSES: readonly SessionStatus[] = ["done", "cancelled", "failed", "executing", "plan_approved"];
 
 export function getDefaultRepoId(config: AppConfig): string {
   if (config.defaultRepoId) return config.defaultRepoId;
@@ -20,6 +24,18 @@ export function getDefaultRepoId(config: AppConfig): string {
   if (config.repos.length === 0)
     throw new Error("No repositories configured. Please add one in the admin dashboard.");
   throw new Error("Multiple repos configured but no default set. Please set a default in the admin dashboard.");
+}
+
+export function getDefaultProvider(config: AppConfig): ProviderConfig {
+  if (config.defaultProviderId) {
+    const provider = config.providers.find((p) => p.id === config.defaultProviderId);
+    if (provider) return provider;
+    throw new Error("Default provider is configured but missing. Fix it in the admin dashboard.");
+  }
+  if (config.providers.length === 1) return config.providers[0];
+  if (config.providers.length === 0)
+    throw new Error("No providers configured. Please add one in the admin dashboard.");
+  throw new Error("Multiple providers configured but no default set. Please set a default in the admin dashboard.");
 }
 
 export function buildLegacySession(
@@ -35,6 +51,7 @@ export function buildLegacySession(
   },
   repo: RepoConfig,
   source: "slack" | "chat",
+  plan: string,
 ): Session {
   return {
     id: request._id,
@@ -42,7 +59,7 @@ export function buildLegacySession(
     threadTs: request.sourceRef?.threadTs ?? undefined,
     userId: request.requesterId,
     conversationHistory: [],
-    plan: request.rawRequest,
+    plan,
     planMessageTs: null,
     status: "executing",
     executionMode: (request.executionMode || "worktree") as "worktree" | "branch",

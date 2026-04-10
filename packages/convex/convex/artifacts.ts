@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { artifactType, artifactCreatedBy } from "./schema";
 
-export const create = mutation({
+export const create = internalMutation({
   args: {
     requestId: v.id("contributionRequests"),
     type: artifactType,
@@ -16,17 +16,17 @@ export const create = mutation({
   },
 });
 
-export const listByRequest = query({
+export const listByRequest = internalQuery({
   args: { requestId: v.id("contributionRequests") },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("artifacts")
       .withIndex("by_request", (q) => q.eq("requestId", args.requestId))
-      .collect();
+      .take(100);
   },
 });
 
-export const get = query({
+export const get = internalQuery({
   args: { id: v.id("artifacts") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);

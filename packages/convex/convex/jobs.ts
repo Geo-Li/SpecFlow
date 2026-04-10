@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { jobType, jobStatus } from "./schema";
 
-export const create = mutation({
+export const create = internalMutation({
   args: {
     requestId: v.id("contributionRequests"),
     type: jobType,
@@ -15,7 +15,7 @@ export const create = mutation({
   },
 });
 
-export const updateStatus = mutation({
+export const updateStatus = internalMutation({
   args: {
     id: v.id("jobs"),
     status: jobStatus,
@@ -38,21 +38,12 @@ export const updateStatus = mutation({
   },
 });
 
-export const getByRequest = query({
+export const getByRequest = internalQuery({
   args: { requestId: v.id("contributionRequests") },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("jobs")
       .withIndex("by_request", (q) => q.eq("requestId", args.requestId))
-      .collect();
-  },
-});
-
-export const listQueued = query({
-  handler: async (ctx) => {
-    return await ctx.db
-      .query("jobs")
-      .withIndex("by_status", (q) => q.eq("status", "queued"))
-      .collect();
+      .take(100);
   },
 });

@@ -1,3 +1,4 @@
+/** Must match PLAN_MARKER in packages/convex/convex/agent.ts */
 export const PLAN_MARKER = "## Implementation Plan";
 
 export const DEFAULT_SYSTEM_PROMPT = `You are a software development planning assistant. Your job is to help users create clear, actionable implementation plans.

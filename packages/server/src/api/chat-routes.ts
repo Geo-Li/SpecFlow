@@ -3,7 +3,7 @@ import { PLAN_MARKER } from "../planner/system-prompt.js";
 import { getConfig } from "../config-store.js";
 import { executeSession } from "../executor/executor.js";
 import { convex, assertConvexEnabled } from "../convex-client.js";
-import { getDefaultRepoId, sanitizeError, buildLegacySession, TERMINAL_STATUSES, NO_MESSAGE_STATUSES } from "../utils.js";
+import { getDefaultProvider, getDefaultRepoId, sanitizeError, toRuntimePayload, buildLegacySession, TERMINAL_STATUSES, NO_MESSAGE_STATUSES } from "../utils.js";
 
 export function createChatRouter(): Router {
   const router = Router();
@@ -96,7 +96,7 @@ export function createChatRouter(): Router {
       try {
         assertConvexEnabled();
       } catch {
-        res.status(503).json({ error: "Convex not configured" });
+        res.status(503).json({ error: "Convex not configured. Set CONVEX_SITE_URL and CONVEX_AUTH_TOKEN." });
         return;
       }
 
@@ -119,26 +119,30 @@ export function createChatRouter(): Router {
 
       try {
         let response: string;
+        const config = getConfig();
+        const provider = getDefaultProvider(config);
 
         if (!request.threadId) {
           const result = await convex.agent.startPlanning({
             requestId: request._id,
             rawRequest: content,
             userId: "admin",
+            provider: toRuntimePayload(provider),
+            systemPrompt: config.systemPromptOverride ?? undefined,
           });
           response = result.response;
         } else {
           const result = await convex.agent.continueThread({
+            requestId: request._id,
             threadId: request.threadId,
             message: content,
+            provider: toRuntimePayload(provider),
+            systemPrompt: config.systemPromptOverride ?? undefined,
           });
           response = result.response;
         }
 
         const hasPlan = response.includes(PLAN_MARKER);
-        if (hasPlan) {
-          await convex.requests.updateStatus({ id: request._id, status: "plan_ready" });
-        }
 
         res.json({
           role: "assistant",
@@ -160,28 +164,34 @@ export function createChatRouter(): Router {
       try {
         assertConvexEnabled();
       } catch {
-        res.status(503).json({ error: "Convex not configured" });
+        res.status(503).json({ error: "Convex not configured. Set CONVEX_SITE_URL and CONVEX_AUTH_TOKEN." });
         return;
       }
 
-      const request = await convex.requests.get(req.params.id as string);
-      if (!request || request.source !== "dashboard") {
+      const detail = await convex.requests.getDetail(req.params.id as string);
+      if (!detail || detail.source !== "dashboard") {
         res.status(404).json({ error: "Session not found" });
         return;
       }
 
-      if (request.status !== "plan_ready") {
-        res.status(400).json({ error: `Cannot confirm: session is ${request.status}` });
+      if (detail.status !== "plan_ready") {
+        res.status(400).json({ error: `Cannot confirm: session is ${detail.status}` });
+        return;
+      }
+
+      const approvedPlan = detail?.currentPlan?.body;
+      if (!approvedPlan) {
+        res.status(400).json({ error: "Cannot confirm: no approved plan is stored for this session." });
         return;
       }
 
       const { id: jobId } = await convex.jobs.create({
-        requestId: request._id,
+        requestId: detail._id,
         type: "claude_code_execution",
       });
 
       await convex.requests.updateStatus({
-        id: request._id,
+        id: detail._id,
         status: "executing",
         currentExecutionId: jobId,
       });
@@ -190,21 +200,21 @@ export function createChatRouter(): Router {
 
       // Execute in background
       const config = getConfig();
-      const repo = config.repos.find((r) => r.id === request.repoId);
+      const repo = config.repos.find((r) => r.id === detail.repoId);
       if (!repo) {
         await Promise.all([
-          convex.requests.updateStatus({ id: request._id, status: "failed", error: "Repo not found" }),
+          convex.requests.updateStatus({ id: detail._id, status: "failed", error: "Repo not found" }),
           convex.jobs.updateStatus({ id: jobId, status: "failed", error: "Repo not found" }),
         ]);
         return;
       }
 
-      const legacySession = buildLegacySession(request, repo, "chat");
+      const legacySession = buildLegacySession(detail, repo, "chat", approvedPlan);
 
       await convex.jobs.updateStatus({ id: jobId, status: "running" });
 
       const onStatus = (message: string) => {
-        console.log(`[chat][${request._id}] ${message}`);
+        console.log(`[chat][${detail._id}] ${message}`);
       };
 
       try {
@@ -212,20 +222,20 @@ export function createChatRouter(): Router {
         if (result.success && result.prUrl) {
           await Promise.all([
             convex.jobs.updateStatus({ id: jobId, status: "completed", output: result.prUrl }),
-            convex.requests.updateStatus({ id: request._id, status: "pr_created", prUrl: result.prUrl }),
+            convex.requests.updateStatus({ id: detail._id, status: "pr_created", prUrl: result.prUrl }),
           ]);
         } else {
           const error = result.error || "Unknown error";
           await Promise.all([
             convex.jobs.updateStatus({ id: jobId, status: "failed", error }),
-            convex.requests.updateStatus({ id: request._id, status: "failed", error }),
+            convex.requests.updateStatus({ id: detail._id, status: "failed", error }),
           ]);
         }
       } catch (err) {
         const msg = sanitizeError(err, "Execution failed");
         await Promise.all([
           convex.jobs.updateStatus({ id: jobId, status: "failed", error: msg }),
-          convex.requests.updateStatus({ id: request._id, status: "failed", error: msg }),
+          convex.requests.updateStatus({ id: detail._id, status: "failed", error: msg }),
         ]);
       }
     }
@@ -236,7 +246,7 @@ export function createChatRouter(): Router {
     try {
       assertConvexEnabled();
     } catch {
-      res.status(503).json({ error: "Convex not configured" });
+      res.status(503).json({ error: "Convex not configured. Set CONVEX_SITE_URL and CONVEX_AUTH_TOKEN." });
       return;
     }
 

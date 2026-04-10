@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { approvalGateType, approverRole } from "./schema";
 
-export const create = mutation({
+export const create = internalMutation({
   args: {
     requestId: v.id("contributionRequests"),
     type: approvalGateType,
@@ -16,7 +16,7 @@ export const create = mutation({
   },
 });
 
-export const decide = mutation({
+export const decide = internalMutation({
   args: {
     id: v.id("approvalGates"),
     status: v.union(
@@ -37,21 +37,12 @@ export const decide = mutation({
   },
 });
 
-export const listByRequest = query({
+export const listByRequest = internalQuery({
   args: { requestId: v.id("contributionRequests") },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("approvalGates")
       .withIndex("by_request", (q) => q.eq("requestId", args.requestId))
-      .collect();
-  },
-});
-
-export const listPending = query({
-  handler: async (ctx) => {
-    return await ctx.db
-      .query("approvalGates")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .collect();
+      .take(100);
   },
 });

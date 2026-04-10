@@ -64,6 +64,7 @@ Colors, typography, spacing defined in `packages/shared/src/design-tokens.ts` an
 
 ## Conventions
 
+- When adding packages, changing env vars, altering architecture, or modifying commands, update `README.md` to match
 - All git operations use `execFileSync` (not `exec`) to prevent shell injection
 - Session state transitions validated by `session-machine.ts`
 - Planning LLM calls retry once on failure before giving up

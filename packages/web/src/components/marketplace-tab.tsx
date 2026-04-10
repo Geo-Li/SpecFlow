@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useModelDiscovery } from "@/lib/use-model-discovery";
 import { Button } from "@/components/button";
 import { Input, inputBaseStyles } from "@/components/input";
 import { Modal } from "@/components/modal";
@@ -9,6 +10,8 @@ import type { CatalogEntry, ProviderConfig } from "@specflow/shared";
 interface MarketplaceTabProps {
   catalog: CatalogEntry[];
   providers: ProviderConfig[];
+  defaultProviderId: string | null;
+  onSetActive: (id: string) => void;
   onUpdate: () => void;
 }
 
@@ -40,6 +43,8 @@ function getColorForSlug(slug: string) {
 export function MarketplaceTab({
   catalog,
   providers,
+  defaultProviderId,
+  onSetActive,
   onUpdate,
 }: MarketplaceTabProps) {
   const [search, setSearch] = useState("");
@@ -53,6 +58,20 @@ export function MarketplaceTab({
   });
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const {
+    discoveredModels,
+    discovering,
+    discoverError,
+    fetchButtonTitle,
+    lastFetchedLabel,
+    handleDiscoverModels,
+    resetDiscovery,
+  } = useModelDiscovery({
+    providerId: editingId ?? undefined,
+    apiKey: form.apiKey,
+    baseUrl: form.baseUrl,
+    type: "openai-compatible",
+  });
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -84,25 +103,17 @@ export function MarketplaceTab({
   const openConnect = (entry: CatalogEntry) => {
     setConnectTarget(entry);
     setCustomMode(false);
-    setForm({
-      name: entry.name,
-      apiKey: "",
-      model: "",
-      baseUrl: entry.defaultBaseUrl,
-    });
+    setForm({ name: entry.name, apiKey: "", model: "", baseUrl: entry.defaultBaseUrl });
     setEditingId(null);
+    resetDiscovery();
   };
 
   const openEdit = (entry: CatalogEntry, provider: ProviderConfig) => {
     setConnectTarget(entry);
     setCustomMode(false);
-    setForm({
-      name: provider.name,
-      apiKey: "",
-      model: provider.model,
-      baseUrl: provider.baseUrl || entry.defaultBaseUrl,
-    });
+    setForm({ name: provider.name, apiKey: "", model: provider.model, baseUrl: provider.baseUrl || entry.defaultBaseUrl });
     setEditingId(provider.id);
+    resetDiscovery();
   };
 
   const openCustom = () => {
@@ -110,6 +121,28 @@ export function MarketplaceTab({
     setCustomMode(true);
     setForm({ name: "", apiKey: "", model: "", baseUrl: "" });
     setEditingId(null);
+    resetDiscovery();
+  };
+
+  const availableModels = useMemo(() => {
+    const sourceModels =
+      discoveredModels.length > 0
+        ? discoveredModels
+        : (connectTarget?.exampleModels || []);
+    const combined = [
+      form.model,
+      ...sourceModels,
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return [...new Set(combined)];
+  }, [connectTarget?.exampleModels, discoveredModels, form.model]);
+
+  const handleDiscoverAndSelect = async () => {
+    const fetched = await handleDiscoverModels();
+    if (fetched.length > 0 && !fetched.includes(form.model)) {
+      setForm((current) => ({ ...current, model: fetched[0] }));
+    }
   };
 
   const handleSave = async () => {
@@ -197,9 +230,22 @@ export function MarketplaceTab({
                     <div className="flex items-center gap-2">
                       {connected ? (
                         <>
+                          {connected.id === defaultProviderId && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                              Active
+                            </span>
+                          )}
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-light text-success">
                             Connected
                           </span>
+                          {connected.id !== defaultProviderId && (
+                            <Button
+                              className="text-xs px-2 py-1"
+                              onClick={() => onSetActive(connected.id)}
+                            >
+                              Set as Active
+                            </Button>
+                          )}
                           <Button
                             variant="secondary"
                             className="text-xs px-2 py-1"
@@ -285,9 +331,22 @@ export function MarketplaceTab({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {p.id === defaultProviderId && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                      Active
+                    </span>
+                  )}
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-light text-success">
                     Connected
                   </span>
+                  {p.id !== defaultProviderId && (
+                    <Button
+                      className="text-xs px-2 py-1"
+                      onClick={() => onSetActive(p.id)}
+                    >
+                      Set as Active
+                    </Button>
+                  )}
                   <Button
                     variant="danger"
                     className="text-xs px-2 py-1"
@@ -335,12 +394,42 @@ export function MarketplaceTab({
             label="Model"
             value={form.model}
             onChange={(e) => setForm({ ...form, model: e.target.value })}
+            list="marketplace-models"
             placeholder={
               connectTarget?.exampleModels[0]
                 ? `e.g. ${connectTarget.exampleModels[0]}`
                 : "Model name"
             }
           />
+          <datalist id="marketplace-models">
+            {availableModels.map((modelId) => (
+              <option key={modelId} value={modelId} />
+            ))}
+          </datalist>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <span title={fetchButtonTitle}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleDiscoverAndSelect}
+                  disabled={
+                    discovering ||
+                    !(editingId || (form.apiKey && form.baseUrl))
+                  }
+                >
+                  {discovering ? "Fetching..." : "Fetch Latest Models"}
+                </Button>
+              </span>
+              <p className="text-xs text-text-secondary">
+                Uses the provider&apos;s live model list when available.
+              </p>
+            </div>
+            <p className="text-xs text-text-secondary">{lastFetchedLabel}</p>
+            {discoverError && (
+              <p className="text-sm text-error">{discoverError}</p>
+            )}
+          </div>
           <Input
             label="Base URL"
             value={form.baseUrl}
@@ -353,6 +442,7 @@ export function MarketplaceTab({
               onClick={() => {
                 setConnectTarget(null);
                 setCustomMode(false);
+                resetDiscovery();
               }}
             >
               Cancel

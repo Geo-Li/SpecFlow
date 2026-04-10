@@ -22,6 +22,21 @@ export default function ReposPage() {
   const load = () => apiFetch<Repo[]>("/api/repos").then(setRepos).catch((err) => setError(err.message || "Failed to load repositories"));
   useEffect(() => { load(); }, []);
 
+  const handlePathChange = async (path: string) => {
+    setForm((prev) => ({ ...prev, localPath: path }));
+    // Auto-detect repo name from git remote
+    if (path) {
+      try {
+        const info = await apiFetch<{ name: string; remoteUrl: string | null }>(`/api/repos/detect-name?localPath=${encodeURIComponent(path)}`);
+        if (info.name) {
+          setForm((prev) => prev.name ? prev : { ...prev, name: info.name });
+        }
+      } catch {
+        // Ignore — user can type the name manually
+      }
+    }
+  };
+
   const handleAdd = async () => {
     setFormError("");
     try {
@@ -59,7 +74,7 @@ export default function ReposPage() {
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add Repository">
         <div className="space-y-4">
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. my-project" />
-          <FolderPicker value={form.localPath} onChange={(path) => setForm({ ...form, localPath: path })} />
+          <FolderPicker value={form.localPath} onChange={handlePathChange} />
           <BranchSelect localPath={form.localPath} value={form.defaultBranch} onChange={(branch) => setForm({ ...form, defaultBranch: branch })} />
           <div>
             <label className="block text-sm font-medium text-text-primary mb-2">Execution Mode</label>

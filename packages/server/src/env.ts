@@ -19,11 +19,13 @@ export async function validateEnv(): Promise<EnvResult> {
   const slackBotToken = process.env.SLACK_BOT_TOKEN;
   const slackAppToken = process.env.SLACK_APP_TOKEN;
   const adminPassword = process.env.SPECFLOW_ADMIN_PASSWORD;
+  const convexAuthToken = process.env.CONVEX_AUTH_TOKEN;
 
   if (!slackBotToken) missing.push("SLACK_BOT_TOKEN");
   if (!slackAppToken) missing.push("SLACK_APP_TOKEN");
   if (!adminPassword) missing.push("SPECFLOW_ADMIN_PASSWORD");
   if (!process.env.CONVEX_SITE_URL) missing.push("CONVEX_SITE_URL");
+  if (!convexAuthToken) missing.push("CONVEX_AUTH_TOKEN");
 
   if (missing.length > 0) {
     throw new Error(`Missing required env vars: ${missing.join(", ")}`);

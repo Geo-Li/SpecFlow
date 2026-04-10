@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "tsc --noEmit",
     "dev": "convex dev",
     "deploy": "convex deploy"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^1.0.0",
-    "@ai-sdk/openai": "^1.0.0",
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/openai": "^2.0.0",
     "@ai-sdk/provider-utils": "^3.0.23",
     "ai": "^5.0.29",
     "@convex-dev/agent": "^0.3.2",

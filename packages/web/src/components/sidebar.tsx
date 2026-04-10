@@ -56,7 +56,7 @@ const navItems: { href: string; label: string; icon: (props: { className?: strin
 export function Sidebar() {
   const pathname = usePathname();
   return (
-    <aside className="w-60 bg-background border-r border-border flex flex-col min-h-screen flex-shrink-0">
+    <aside className="w-60 bg-background border-r border-border flex flex-col min-h-screen shrink-0">
       <div className="px-4 pt-6 pb-1">
         <h1 className="text-lg font-bold text-text-primary tracking-tight">SpecFlow</h1>
         <p className="text-[11px] text-text-tertiary font-medium uppercase tracking-wide mt-0.5">Admin Dashboard</p>
@@ -68,10 +68,10 @@ export function Sidebar() {
             <Link key={item.href} href={item.href}
               className={`flex items-center gap-2.5 px-3 py-2.5 rounded-glass-sm text-sm mb-0.5 transition-colors ${
                 isActive
-                  ? "bg-black/[0.06] text-text-primary font-medium"
-                  : "text-text-secondary hover:bg-black/[0.04] hover:text-text-primary"
+                  ? "bg-black/6 text-text-primary font-medium"
+                  : "text-text-secondary hover:bg-black/4 hover:text-text-primary"
               }`}>
-              <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
+              <item.icon className="w-[18px] h-[18px] shrink-0" />
               {item.label}
             </Link>
           );

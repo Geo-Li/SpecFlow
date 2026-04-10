@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { inputBaseStyles } from "@/components/input";
+import { Select } from "@/components/select";
 
 export function BranchSelect({
   localPath,
@@ -59,27 +59,18 @@ export function BranchSelect({
         ? "No branches found"
         : "Select a branch";
 
+  const options = branches.map((b) => ({ value: b, label: b }));
+
   return (
     <div>
-      <label className="block text-sm font-medium text-text-primary mb-1">{label}</label>
-      <select
+      <Select
+        label={label}
         value={branches.includes(value) ? value : ""}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
+        options={options}
+        placeholder={placeholder}
         disabled={disabled}
-        className={`${inputBaseStyles} disabled:opacity-50 disabled:cursor-not-allowed`}
-      >
-        {disabled || branches.length === 0 ? (
-          <option value="" disabled>
-            {placeholder}
-          </option>
-        ) : (
-          branches.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))
-        )}
-      </select>
+      />
       {error && localPath && (
         <p className="text-xs text-text-secondary mt-1">{error}</p>
       )}

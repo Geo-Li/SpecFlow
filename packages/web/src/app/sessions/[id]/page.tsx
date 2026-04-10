@@ -7,7 +7,19 @@ import { Card } from "@/components/card";
 import { StatusBadge } from "@/components/status-badge";
 
 import type { SessionStatus, Message, ExecutionMode } from "@specflow/shared";
-interface SessionDetail { id: string; status: SessionStatus; userId: string; originalMessage: string; plan: string | null; conversationHistory: Message[]; prUrl: string | null; error: string | null; executionMode: ExecutionMode; baseBranch: string; createdAt: string; }
+interface SessionDetail {
+  id: string;
+  status: SessionStatus;
+  userId: string;
+  originalMessage: string;
+  plan: string | null;
+  conversationHistory?: Message[];
+  prUrl: string | null;
+  error: string | null;
+  executionMode?: ExecutionMode;
+  baseBranch?: string;
+  createdAt: string;
+}
 
 export default function SessionDetailPage() {
   const params = useParams();
@@ -18,6 +30,7 @@ export default function SessionDetailPage() {
 
   if (error) return <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>;
   if (!session) return <p className="text-sm text-text-secondary">Loading...</p>;
+  const conversation = session.conversationHistory ?? [];
 
   return (
     <>
@@ -26,8 +39,8 @@ export default function SessionDetailPage() {
         <Card>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div><span className="text-text-tertiary">Status:</span> <StatusBadge status={session.status} /></div>
-            <div><span className="text-text-tertiary">Mode:</span> {session.executionMode}</div>
-            <div><span className="text-text-tertiary">Base Branch:</span> {session.baseBranch}</div>
+            <div><span className="text-text-tertiary">Mode:</span> {session.executionMode ?? "—"}</div>
+            <div><span className="text-text-tertiary">Base Branch:</span> {session.baseBranch ?? "—"}</div>
             <div><span className="text-text-tertiary">Created:</span> {new Date(session.createdAt).toLocaleString()}</div>
             {session.prUrl && <div className="col-span-2"><span className="text-text-tertiary">PR:</span>{" "}<a href={session.prUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">{session.prUrl}</a></div>}
             {session.error && <div className="col-span-2"><span className="text-text-tertiary">Error:</span>{" "}<span className="text-error">{session.error}</span></div>}
@@ -36,19 +49,23 @@ export default function SessionDetailPage() {
         {session.plan && (
           <Card>
             <h2 className="text-[15px] font-semibold mb-3">Plan</h2>
-            <pre className="text-sm bg-black/[0.03] p-4 rounded-lg overflow-auto whitespace-pre-wrap">{session.plan}</pre>
+            <pre className="text-sm bg-black/3 p-4 rounded-lg overflow-auto whitespace-pre-wrap">{session.plan}</pre>
           </Card>
         )}
         <Card>
           <h2 className="text-[15px] font-semibold mb-3">Conversation</h2>
-          <div className="space-y-3">
-            {session.conversationHistory.map((msg, i) => (
-              <div key={i} className={`text-sm ${msg.role === "user" ? "text-text-primary" : "text-text-secondary"}`}>
-                <span className="font-medium">{msg.role === "user" ? "User" : "Agent"}:</span>{" "}
-                <span className="whitespace-pre-wrap">{msg.content.slice(0, 500)}{msg.content.length > 500 ? "..." : ""}</span>
-              </div>
-            ))}
-          </div>
+          {conversation.length === 0 ? (
+            <p className="text-sm text-text-secondary">Conversation history is not exposed in the dashboard yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {conversation.map((msg, i) => (
+                <div key={i} className={`text-sm ${msg.role === "user" ? "text-text-primary" : "text-text-secondary"}`}>
+                  <span className="font-medium">{msg.role === "user" ? "User" : "Agent"}:</span>{" "}
+                  <span className="whitespace-pre-wrap">{msg.content.slice(0, 500)}{msg.content.length > 500 ? "..." : ""}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
     </>

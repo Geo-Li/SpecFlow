@@ -4,7 +4,7 @@ import { PLAN_MARKER } from "../planner/system-prompt.js";
 import { getConfig } from "../config-store.js";
 import { buildPlanMessage } from "./blocks.js";
 import { convex, assertConvexEnabled } from "../convex-client.js";
-import { getDefaultRepoId, sanitizeError, NO_MESSAGE_STATUSES } from "../utils.js";
+import { getDefaultProvider, getDefaultRepoId, sanitizeError, toRuntimePayload, NO_MESSAGE_STATUSES } from "../utils.js";
 
 async function handleNewTask(
   app: App, channelId: string, threadTs: string, userId: string, text: string
@@ -12,6 +12,7 @@ async function handleNewTask(
   assertConvexEnabled();
   const config = getConfig();
   const repoId = getDefaultRepoId(config);
+  const provider = getDefaultProvider(config);
 
   const { id: requestId } = await convex.requests.create({
     orgId: "default",
@@ -28,6 +29,8 @@ async function handleNewTask(
     requestId,
     rawRequest: text,
     userId,
+    provider: toRuntimePayload(provider),
+    systemPrompt: config.systemPromptOverride ?? undefined,
   });
 
   if (response.includes(PLAN_MARKER)) {
@@ -37,7 +40,6 @@ async function handleNewTask(
       blocks: buildPlanMessage(response, requestId),
       text: "Implementation plan ready for review.",
     });
-    await convex.requests.updateStatus({ id: requestId, status: "plan_ready" });
   } else {
     await app.client.chat.postMessage({
       channel: channelId,
@@ -62,9 +64,14 @@ async function handleThreadReply(
     await convex.requests.updateStatus({ id: request._id, status: "clarifying" });
   }
 
+  const config = getConfig();
+  const provider = getDefaultProvider(config);
   const { response } = await convex.agent.continueThread({
+    requestId: request._id,
     threadId: request.threadId,
     message: text,
+    provider: toRuntimePayload(provider),
+    systemPrompt: config.systemPromptOverride ?? undefined,
   });
 
   if (response.includes(PLAN_MARKER)) {
@@ -74,7 +81,6 @@ async function handleThreadReply(
       blocks: buildPlanMessage(response, request._id),
       text: "Implementation plan ready for review.",
     });
-    await convex.requests.updateStatus({ id: request._id, status: "plan_ready" });
   } else {
     await app.client.chat.postMessage({
       channel: channelId,

@@ -50,6 +50,28 @@ export function createRepoRouter(): Router {
     }
   });
 
+  router.get("/api/repos/detect-name", async (req: Request, res: Response) => {
+    const localPath = typeof req.query.localPath === "string" ? req.query.localPath : "";
+    const pathErr = validateLocalPath(localPath);
+    if (pathErr) { res.status(400).json({ error: pathErr }); return; }
+    try {
+      const { stdout } = await execFileAsync("git", ["remote", "get-url", "origin"], {
+        cwd: localPath,
+        encoding: "utf-8",
+        timeout: 5000,
+      });
+      const url = stdout.trim();
+      // Extract repo name from git URL: git@github.com:user/repo.git or https://github.com/user/repo.git
+      const match = url.match(/\/([^/]+?)(?:\.git)?$/) || url.match(/:([^/]+\/[^/]+?)(?:\.git)?$/);
+      const name = match ? match[1].split("/").pop() || "" : "";
+      res.json({ name, remoteUrl: url });
+    } catch {
+      // Not a git repo or no remote — fall back to folder name
+      const folderName = localPath.split("/").filter(Boolean).pop() || "";
+      res.json({ name: folderName, remoteUrl: null });
+    }
+  });
+
   router.get("/api/repos/branches", async (req: Request, res: Response) => {
     const localPath = typeof req.query.localPath === "string" ? req.query.localPath : "";
     const pathErr = validateLocalPath(localPath);

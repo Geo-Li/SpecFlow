@@ -21,12 +21,31 @@ type TabKey = (typeof TABS)[number]["key"];
 
 export default function ProvidersPage() {
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
+  const [defaultProviderId, setDefaultProviderId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("anthropic");
+  const [error, setError] = useState("");
 
-  const load = () => apiFetch<ProviderConfig[]>("/api/providers").then(setProviders);
+  const load = () => {
+    setError("");
+    Promise.all([
+      apiFetch<ProviderConfig[]>("/api/providers"),
+      apiFetch<{ defaultProviderId: string | null }>("/api/config"),
+    ]).then(([provs, cfg]) => {
+      setProviders(provs);
+      setDefaultProviderId(cfg.defaultProviderId);
+    }).catch((err) => setError(err.message || "Failed to load providers"));
+  };
   useEffect(() => {
     load();
   }, []);
+
+  const handleSetActive = async (providerId: string) => {
+    await apiFetch("/api/config", {
+      method: "PUT",
+      body: JSON.stringify({ defaultProviderId: providerId }),
+    });
+    setDefaultProviderId(providerId);
+  };
 
   return (
     <>
@@ -34,6 +53,7 @@ export default function ProvidersPage() {
         title="LLM Providers"
         description="Configure planning agent providers"
       />
+      {error && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>}
 
       {/* Tab bar */}
       <div className="border-b border-border mb-6">
@@ -70,6 +90,8 @@ export default function ProvidersPage() {
           label={TABS.find((t) => t.key === activeTab)!.label}
           models={FIRST_PARTY_MODELS[activeTab]}
           providers={providers}
+          defaultProviderId={defaultProviderId}
+          onSetActive={handleSetActive}
           onUpdate={load}
         />
       )}
@@ -77,6 +99,8 @@ export default function ProvidersPage() {
         <MarketplaceTab
           catalog={providerCatalog}
           providers={providers}
+          defaultProviderId={defaultProviderId}
+          onSetActive={handleSetActive}
           onUpdate={load}
         />
       )}
